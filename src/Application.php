@@ -63,7 +63,11 @@ final class Application
 
     public function run(): void
     {
-        $dates = explode(',', $_ENV['DATES']);
+        $options = getopt('', [
+            'dates::',
+        ]);
+        $date = $options['dates'] ?? $_ENV['DATES'];
+        $dates = explode(',', $date);
 
         foreach ($dates as $date) {
             $this->initValues($date);

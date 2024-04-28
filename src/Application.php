@@ -5,18 +5,21 @@ namespace FSStats;
 use Aws\S3\Exception\S3Exception;
 use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
+use Doctrine\ORM\EntityManager;
+use FSStats\Db\EntityManagerBuilder;
+use FSStats\Db\Orm\LastProceeded;
+use FSStats\Db\Orm\Stats;
 use GuzzleHttp\Psr7\Stream;
+use Symfony\Component\Console\Helper\ProgressBar;
+use Symfony\Component\Console\Output\ConsoleOutput;
+use Symfony\Component\Console\Output\OutputInterface;
 
 final class Application
 {
-    private S3Client $clientRead;
-    private S3Client $clientWrite;
-    private MessageParser $messageParser;
-    private MessageFormatter $messageFormatter;
-    private Output $output;
-    private ?ProceededValuesDto $proceededValues = null;
-
-    private const TARGET_SIZE = 131072; // 128 * 1024
+    private S3Client $client;
+    private OutputInterface $output;
+    private EntityManager $entityManager;
+    private ProgressBar $progressBar;
 
     public function __construct()
     {
@@ -28,7 +31,7 @@ final class Application
             'RoleArn' => $_ENV['ARN_ROLE_READ'],
             'RoleSessionName' => 's3-access-temporary-read',
         ]);
-        $this->clientRead = new S3Client([
+        $this->client = new S3Client([
             'version' => 'latest',
             'region' => $_ENV['REGION_READ'],
             'credentials' =>  [
@@ -38,27 +41,9 @@ final class Application
             ]
         ]);
 
-        $stsClient = new StsClient([
-            'region' => $_ENV['REGION_WRITE'],
-            'version' => 'latest',
-        ]);
-        $result = $stsClient->AssumeRole([
-            'RoleArn' => $_ENV['ARN_ROLE_WRITE'],
-            'RoleSessionName' => 's3-access-temporary-write',
-        ]);
-        $this->clientWrite = new S3Client([
-            'version' => 'latest',
-            'region' => $_ENV['REGION_WRITE'],
-            'credentials' =>  [
-                'key'    => $result['Credentials']['AccessKeyId'],
-                'secret' => $result['Credentials']['SecretAccessKey'],
-                'token'  => $result['Credentials']['SessionToken']
-            ]
-        ]);
-
-        $this->messageParser = new MessageParser();
-        $this->messageFormatter = new MessageFormatter();
-        $this->output = new Output();
+        $this->output = new ConsoleOutput();
+        $this->progressBar = new ProgressBar($this->output);
+        $this->entityManager = (new EntityManagerBuilder())->get();
     }
 
     public function run(): void
@@ -70,10 +55,8 @@ final class Application
         $dates = explode(',', $date);
 
         foreach ($dates as $date) {
-            $this->initValues($date);
-
             try {
-                $result = $this->clientRead->getObject([
+                $result = $this->client->getObject([
                     'Bucket' => $_ENV['BUCKET_NAME_READ'],
                     'Key' => $_ENV['STATISTIC_FOLDER_PATH'] . 'hive/dt=' . $date . '-01-00/symlink.txt',
                 ]);
@@ -90,75 +73,43 @@ final class Application
 
             $body->close();
 
+            $this->output->writeln(sprintf('[%s] Progress:', $date));
             $gzipUrls = $this->filterGzips($gzipUrls);
-
-            $this->processGzips($date, $gzipUrls);
-        }
-    }
-
-    private function initValues(string $date): void
-    {
-        try {
-            $result = $this->clientWrite->getObject([
-                'Bucket' => $_ENV['BUCKET_NAME_WRITE'],
-                'Key' => $_ENV['RESULT_FOLDER_PATH'] . Config::RESPONSE_FOLDER . $date . '.txt',
-            ]);
-            $this->proceededValues = $this->messageParser->parse($result['Body']->getContents());
-            $this->output->writeln(sprintf('[%s] Initialized with values from s3', $date));
-        } catch (S3Exception $e) {
-            $this->proceededValues = null;
-            $this->output->writeln(sprintf('[%s] Initialized with default values', $date));
+            if (empty($gzipUrls)) {
+                $this->output->writeln(sprintf(' > Skipped %s', $date));
+                continue;
+            }
+            $this->processGzips($gzipUrls);
         }
     }
 
     private function filterGzips(array $gzipUrls): array
     {
-        if ($this->isFirstScriptRun()) {
-            return $gzipUrls;
-        }
+        /** @var string[] $proccededGzips */
+        $proccededGzips = array_map(function(LastProceeded $lastProceeded) {
+            return $lastProceeded->getGzip();
+        }, $this->entityManager->getRepository(LastProceeded::class)->findAll());
 
-        $lastProceededFileIndex = array_search($this->proceededValues->getLastFile(), $gzipUrls);
-        if ($lastProceededFileIndex === false) {
-            return $gzipUrls;
-        }
-
-        $gzipUrls = array_slice($gzipUrls, $lastProceededFileIndex + 1);
-        if (empty($gzipUrls)) {
-            $this->output->writeln('No new data found');
-        }
-
-        return $gzipUrls;
+        return array_diff($gzipUrls, $proccededGzips);
     }
 
-    private function processGzips(string $date, array $gzipUrls): void
+    private function processGzips(array $gzipUrls): void
     {
-        $this->clientRead->registerStreamWrapperV2();
+        $this->client->registerStreamWrapperV2();
 
-        $urlsCount = count($gzipUrls);
-        foreach ($gzipUrls as $index => $gzipUrl) {
-            $this->processGzipUrl($date, $gzipUrl);
-            $this->output->writeln(
-                sprintf(
-                    '[%s] Processed %d of %d (%d%%)',
-                    $date,
-                    $index + 1,
-                    $urlsCount,
-                    ($index + 1) / $urlsCount * 100
-                )
-            );
+        $this->progressBar->setMaxSteps(count($gzipUrls));
+        $this->progressBar->setProgress(0);
+
+        foreach ($gzipUrls as $gzipUrl) {
+            $this->processGzipUrl($gzipUrl);
+            $this->progressBar->advance();
         }
 
         $this->output->writeln('');
     }
 
-    private function processGzipUrl(string $date, string $gzipUrl): void
+    private function processGzipUrl(string $gzipUrl): void
     {
-        $totalBytes = 0;
-        $bytesAboveTarget = 0;
-
-        $totalFiles = 0;
-        $filesAboveTarget = 0;
-
         if (($stream = fopen($gzipUrl, 'r')) === false) {
             throw new \Exception('Unable to open file: ' . $gzipUrl);
         }
@@ -167,69 +118,38 @@ final class Application
             'window' => 32,
         ]);
 
+        $counter = 0;
         while (
             ($data = fgetcsv($stream, 1000)) !== false
         ) {
-            if (strtolower($data[4]) !== 'false') { // isDeleteMarker
+            // Bucket, Key, VersionId, IsLatest, IsDeleteMarker, Size
+            /*if (strtolower($data[4]) !== 'false') { // isDeleteMarker
                 continue;
             }
-            $size = (int)$data[5];
+            if (strtolower($data[3]) !== 'true') { // isLatest
+                continue;
+            }*/
 
-            $totalBytes += $size;
-            $totalFiles++;
+            $stat = new Stats();
+            $stat->setKey($data[1]);
+            $stat->setIsLatest($data[3] == 'true');
+            $stat->setIsDeleteMarker($data[4] == 'true');
+            $stat->setSize((int)$data[5]);
 
-            if ($size > self::TARGET_SIZE) {
-                $bytesAboveTarget += $size;
-                $filesAboveTarget++;
+            $this->entityManager->persist($stat);
+
+            if ((++$counter % $_ENV['BATCH_SIZE']) === 0) {
+                $this->entityManager->flush();
+                $this->entityManager->clear();
             }
         }
         fclose($stream);
 
-        $bytesBelowTarget = $totalBytes - $bytesAboveTarget;
-        $filesBelowTarget = $totalFiles - $filesAboveTarget;
-        if ($this->isFirstScriptRun()) {
-            $dto = new ProceededValuesDto(
-                $totalBytes, $bytesAboveTarget, $bytesBelowTarget,
-                $totalFiles, $filesAboveTarget, $filesBelowTarget,
-                $date
-            );
-        } else {
-            $dto = new ProceededValuesDto(
-                $this->proceededValues->getTotalBytes() + $totalBytes,
-                $this->proceededValues->getBytesAboveTarget() + $bytesAboveTarget,
-                $this->proceededValues->getBytesBelowTarget() + $bytesBelowTarget,
-                $this->proceededValues->getTotalFiles() + $totalFiles,
-                $this->proceededValues->getFilesAboveTarget() + $filesAboveTarget,
-                $this->proceededValues->getFilesBelowTarget() + $filesBelowTarget,
-                $gzipUrl
-            );
-        }
+        $lastProceeded = new LastProceeded();
+        $lastProceeded->setGzip($gzipUrl);
+        $this->entityManager->persist($lastProceeded);
 
-        $this->writeToFile($date, $dto);
-        $this->proceededValues = $dto;
-
-        $this->output->writeln(sprintf('> Proceeded %d elements' . PHP_EOL, $totalFiles));
-    }
-
-    private function writeToFile(string $date, ProceededValuesDto $dto): void
-    {
-        $this->clientWrite->putObject([
-            'Bucket' => $_ENV['BUCKET_NAME_WRITE'],
-            'Key' => $_ENV['RESULT_FOLDER_PATH'] . Config::RESPONSE_FOLDER . $date . '.txt',
-            'Body' => $this->messageFormatter->formatMessage(
-                $dto->getTotalBytes(),
-                $dto->getBytesAboveTarget(),
-                $dto->getBytesBelowTarget(),
-                $dto->getTotalFiles(),
-                $dto->getFilesAboveTarget(),
-                $dto->getFilesBelowTarget(),
-                $dto->getLastFile()
-            ),
-        ]);
-    }
-
-    private function isFirstScriptRun(): bool
-    {
-        return $this->proceededValues === null;
+        $this->entityManager->flush();
+        $this->entityManager->clear();
     }
 }

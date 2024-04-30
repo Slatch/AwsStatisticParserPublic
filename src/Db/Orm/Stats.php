@@ -16,14 +16,17 @@ class Stats
     #[ORM\Column(type: 'string')]
     private string $key;
 
+    #[ORM\Column(type: 'string', length: 40)]
+    private string $version;
+
     #[ORM\Column(type: 'boolean')]
     private bool $isLatest;
 
     #[ORM\Column(type: 'boolean')]
     private bool $isDeleteMarker;
 
-    #[ORM\Column(type: 'integer', options: ['unsigned' => true])]
-    private int $size;
+    #[ORM\Column(type: 'integer', options: ['unsigned' => true], nullable: true)]
+    private ?int $size = null;
 
     public function setKey(string $key): void
     {
@@ -33,6 +36,16 @@ class Stats
     public function getKey(): string
     {
         return $this->key;
+    }
+
+    public function setVersion(string $version): void
+    {
+        $this->version = $version;
+    }
+
+    public function getVersion(): string
+    {
+        return $this->version;
     }
 
     public function setIsLatest(bool $isLatest): void
@@ -55,12 +68,12 @@ class Stats
         return $this->isDeleteMarker;
     }
 
-    public function setSize(int $size): void
+    public function setSize(?int $size): void
     {
         $this->size = $size;
     }
 
-    public function getSize(): int
+    public function getSize(): ?int
     {
         return $this->size;
     }

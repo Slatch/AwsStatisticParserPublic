@@ -132,9 +132,12 @@ final class Application
 
             $stat = new Stats();
             $stat->setKey($data[1]);
+            $stat->setVersion($data[2]);
             $stat->setIsLatest($data[3] == 'true');
             $stat->setIsDeleteMarker($data[4] == 'true');
-            $stat->setSize((int)$data[5]);
+            if (!empty($data[5]) || $data[5] === '0') {
+                $stat->setSize((int)$data[5]);
+            }
 
             $this->entityManager->persist($stat);
 

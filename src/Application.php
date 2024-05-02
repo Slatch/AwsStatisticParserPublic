@@ -81,6 +81,13 @@ final class Application
             }
             $this->processGzips($gzipUrls);
         }
+
+        $this->output->writeln('Done');
+
+        while (true) {
+            sleep(10);
+            $this->output->write('.');
+        }
     }
 
     private function filterGzips(array $gzipUrls): array

@@ -86,7 +86,6 @@ final class Application
 
         while (true) {
             sleep(10);
-            $this->output->write('.');
         }
     }
 

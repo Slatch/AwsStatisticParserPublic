@@ -85,7 +85,7 @@ final class Application
         $this->output->writeln('Done');
 
         while (true) {
-            sleep(10);
+            sleep(1);
         }
     }
 

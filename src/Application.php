@@ -6,6 +6,7 @@ use Aws\S3\Exception\S3Exception;
 use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
 use Doctrine\ORM\EntityManager;
+use Doctrine\ORM\Tools\SchemaTool;
 use FSStats\Db\EntityManagerBuilder;
 use FSStats\Db\Orm\LastProceeded;
 use FSStats\Db\Orm\Stats;
@@ -44,6 +45,8 @@ final class Application
         $this->output = new ConsoleOutput();
         $this->progressBar = new ProgressBar($this->output);
         $this->entityManager = (new EntityManagerBuilder())->get();
+
+        $this->initDb();
     }
 
     public function run(): void
@@ -87,6 +90,17 @@ final class Application
         while (true) {
             sleep(1);
         }
+    }
+
+    private function initDb(): void
+    {
+        $tool = new SchemaTool($this->entityManager);
+        $classes = [
+            $this->entityManager->getClassMetadata(Stats::class),
+            $this->entityManager->getClassMetadata(LastProceeded::class),
+        ];
+        $tool->dropSchema($classes);
+        $tool->createSchema($classes);
     }
 
     private function filterGzips(array $gzipUrls): array

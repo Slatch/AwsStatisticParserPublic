@@ -11,7 +11,6 @@ use FSStats\Db\EntityManagerBuilder;
 use FSStats\Db\Orm\LastProceeded;
 use FSStats\Db\Orm\Stats;
 use GuzzleHttp\Psr7\Stream;
-use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -20,7 +19,6 @@ final class Application
     private S3Client $client;
     private OutputInterface $output;
     private EntityManager $entityManager;
-    private ProgressBar $progressBar;
 
     public function __construct()
     {
@@ -43,7 +41,6 @@ final class Application
         ]);
 
         $this->output = new ConsoleOutput();
-        $this->progressBar = new ProgressBar($this->output);
         $this->entityManager = (new EntityManagerBuilder())->get();
 
         $this->initDb();
@@ -51,6 +48,7 @@ final class Application
 
     public function run(): void
     {
+        $this->output->writeln('Start...');
         $options = getopt('', [
             'dates::',
         ]);
@@ -58,6 +56,7 @@ final class Application
         $dates = explode(',', $date);
 
         foreach ($dates as $date) {
+            $this->output->writeln('[' . $date . '] Get symlink.txt');
             try {
                 $result = $this->client->getObject([
                     'Bucket' => $_ENV['BUCKET_NAME_READ'],
@@ -68,6 +67,7 @@ final class Application
                 return;
             }
 
+            $this->output->writeln('[' . $date . '] Get body');
             /** @var Stream $body */
             $body = $result['Body'];
             $body->rewind();
@@ -76,12 +76,14 @@ final class Application
 
             $body->close();
 
-            $this->output->writeln(sprintf('[%s] Progress:', $date));
+            $this->output->writeln(sprintf('[%s] Filter links:', $date));
             $gzipUrls = $this->filterGzips($gzipUrls);
             if (empty($gzipUrls)) {
                 $this->output->writeln(sprintf(' > Skipped %s', $date));
                 continue;
             }
+
+            $this->output->writeln('[' . $date . '] Process links');
             $this->processGzips($gzipUrls);
         }
 
@@ -117,12 +119,13 @@ final class Application
     {
         $this->client->registerStreamWrapperV2();
 
-        $this->progressBar->setMaxSteps(count($gzipUrls));
-        $this->progressBar->setProgress(0);
+        $max = count($gzipUrls);
+        $current = 0;
 
+        $this->output->writeln('(' . $current . '/' . $max . ')');
         foreach ($gzipUrls as $gzipUrl) {
             $this->processGzipUrl($gzipUrl);
-            $this->progressBar->advance();
+            $this->output->writeln(str_pad('', ++$current, '.') . ' (' . $current . '/' . $max . ')');
         }
 
         $this->output->writeln('');

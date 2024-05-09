@@ -7,7 +7,11 @@ use FSStats\Application;
 
 (Dotenv::createUnsafeImmutable(__DIR__, '.env'))->load();
 
-(new Application())->run();
+try {
+    (new Application())->run();
+} catch (\Throwable $e) {
+    echo '<error>Error while running script: ' . $e->getMessage() . '</error>';
+}
 
 // usage:
 // docker run -it --rm --name my-running-script -v "$PWD":/usr/src/myapp -w /usr/src/myapp php:8.2-cli php parse_statistic.php

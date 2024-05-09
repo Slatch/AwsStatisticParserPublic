@@ -22,23 +22,7 @@ final class Application
 
     public function __construct()
     {
-        $stsClient = new StsClient([
-            'region' => $_ENV['REGION_READ'],
-            'version' => 'latest',
-        ]);
-        $result = $stsClient->AssumeRole([
-            'RoleArn' => $_ENV['ARN_ROLE_READ'],
-            'RoleSessionName' => 's3-access-temporary-read',
-        ]);
-        $this->client = new S3Client([
-            'version' => 'latest',
-            'region' => $_ENV['REGION_READ'],
-            'credentials' =>  [
-                'key'    => $result['Credentials']['AccessKeyId'],
-                'secret' => $result['Credentials']['SecretAccessKey'],
-                'token'  => $result['Credentials']['SessionToken']
-            ]
-        ]);
+        $this->initClient();
 
         $this->output = new ConsoleOutput();
         $this->entityManager = (new EntityManagerBuilder())->get();
@@ -94,6 +78,27 @@ final class Application
         }
     }
 
+    private function initClient(): void
+    {
+        $stsClient = new StsClient([
+            'region' => $_ENV['REGION_READ'],
+            'version' => 'latest',
+        ]);
+        $result = $stsClient->AssumeRole([
+            'RoleArn' => $_ENV['ARN_ROLE_READ'],
+            'RoleSessionName' => 's3-access-temporary-read',
+        ]);
+        $this->client = new S3Client([
+            'version' => 'latest',
+            'region' => $_ENV['REGION_READ'],
+            'credentials' =>  [
+                'key'    => $result['Credentials']['AccessKeyId'],
+                'secret' => $result['Credentials']['SecretAccessKey'],
+                'token'  => $result['Credentials']['SessionToken']
+            ]
+        ]);
+    }
+
     private function initDb(): void
     {
         $tool = new SchemaTool($this->entityManager);
@@ -117,15 +122,14 @@ final class Application
 
     private function processGzips(array $gzipUrls): void
     {
+        $this->initClient();
         $this->client->registerStreamWrapperV2();
 
         $max = count($gzipUrls);
-        $current = 0;
-
-        $this->output->writeln('(' . $current . '/' . $max . ')');
-        foreach ($gzipUrls as $gzipUrl) {
+        $this->output->writeln('0/' . $max);
+        foreach ($gzipUrls as $index => $gzipUrl) {
             $this->processGzipUrl($gzipUrl);
-            $this->output->writeln(str_pad('', ++$current, '.') . ' (' . $current . '/' . $max . ')');
+            $this->output->writeln(($index + 1) . '/' . $max);
         }
 
         $this->output->writeln('');

@@ -2,6 +2,7 @@
 
 namespace FSStats;
 
+use Aws\Api\DateTimeResult;
 use Aws\S3\Exception\S3Exception;
 use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
@@ -19,14 +20,15 @@ final class Application
     private S3Client $client;
     private OutputInterface $output;
     private EntityManager $entityManager;
+    private DateTimeResult $tokenExpiration;
+    private const TOKEN_EXPIRATION_THRESHOLD = 55; // in minutes
 
     public function __construct()
     {
-        $this->initClient();
-
         $this->output = new ConsoleOutput();
         $this->entityManager = (new EntityManagerBuilder())->get();
 
+        $this->initClient();
         $this->initDb();
     }
 
@@ -78,6 +80,17 @@ final class Application
         }
     }
 
+    private function isNeededToUpdateToken(): bool
+    {
+        $origin = new \DateTime();
+        $target = $this->tokenExpiration;
+
+        $interval = $origin->diff($target);
+        return
+            $interval->h === 0 &&
+            $interval->i <= self::TOKEN_EXPIRATION_THRESHOLD;
+    }
+
     private function initClient(): void
     {
         $stsClient = new StsClient([
@@ -88,13 +101,23 @@ final class Application
             'RoleArn' => $_ENV['ARN_ROLE_READ'],
             'RoleSessionName' => 's3-access-temporary-read',
         ]);
+        $this->tokenExpiration = $result['Credentials']['Expiration'];
+
+        $this->output->writeln('');
+        $this->output->writeln('----------');
+        $this->output->writeln('Assumed role info: ');
+        $this->output->writeln('Current SessionToken: ' . substr($result['Credentials']['SessionToken'], 0, 10) . '...');
+        $this->output->writeln('Expiration: ' . $this->tokenExpiration->format('Y-m-d H:i:s'));
+        $this->output->writeln('----------');
+        $this->output->writeln('');
+
         $this->client = new S3Client([
             'version' => 'latest',
             'region' => $_ENV['REGION_READ'],
             'credentials' =>  [
-                'key'    => $result['Credentials']['AccessKeyId'],
+                'key' => $result['Credentials']['AccessKeyId'],
                 'secret' => $result['Credentials']['SecretAccessKey'],
-                'token'  => $result['Credentials']['SessionToken']
+                'token' => $result['Credentials']['SessionToken']
             ]
         ]);
     }
@@ -122,14 +145,16 @@ final class Application
 
     private function processGzips(array $gzipUrls): void
     {
-        $this->initClient();
         $this->client->registerStreamWrapperV2();
 
         $max = count($gzipUrls);
-        $this->output->writeln('0/' . $max);
+        $this->output->write('Total: ' . $max . ' | Processed: ');
         foreach ($gzipUrls as $index => $gzipUrl) {
+            if ($this->isNeededToUpdateToken()) {
+                $this->initClient();
+            }
             $this->processGzipUrl($gzipUrl);
-            $this->output->writeln(($index + 1) . '/' . $max);
+            $this->output->write(($index + 1) . ' ');
         }
 
         $this->output->writeln('');

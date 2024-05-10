@@ -75,7 +75,7 @@ final class Application
 
         $this->output->writeln('Done');
 
-        while (true) {
+        while ($_ENV['TERMINATE'] ?? true) {
             sleep(1);
         }
     }
@@ -99,7 +99,7 @@ final class Application
         ]);
         $result = $stsClient->AssumeRole([
             'RoleArn' => $_ENV['ARN_ROLE_READ'],
-            'RoleSessionName' => 's3-access-temporary-read',
+            'RoleSessionName' => 's3-access-temporary-read-' . time(),
         ]);
         $this->tokenExpiration = $result['Credentials']['Expiration'];
 
@@ -120,6 +120,7 @@ final class Application
                 'token' => $result['Credentials']['SessionToken']
             ]
         ]);
+        $this->client->registerStreamWrapperV2();
     }
 
     private function initDb(): void
@@ -145,8 +146,6 @@ final class Application
 
     private function processGzips(array $gzipUrls): void
     {
-        $this->client->registerStreamWrapperV2();
-
         $max = count($gzipUrls);
         $this->output->write('Total: ' . $max . ' | Processed: ');
         foreach ($gzipUrls as $index => $gzipUrl) {
@@ -157,7 +156,7 @@ final class Application
             $this->output->write(($index + 1) . ' ');
         }
 
-        $this->output->writeln('');
+        $this->output->writeln(PHP_EOL);
     }
 
     private function processGzipUrl(string $gzipUrl): void

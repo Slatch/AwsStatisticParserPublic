@@ -21,7 +21,7 @@ final class Application
     private OutputInterface $output;
     private EntityManager $entityManager;
     private DateTimeResult $tokenExpiration;
-    private const TOKEN_EXPIRATION_THRESHOLD = 55; // in minutes
+    private const TOKEN_EXPIRATION_THRESHOLD = 20; // in minutes
 
     public function __construct()
     {

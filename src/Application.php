@@ -161,9 +161,13 @@ final class Application
 
     private function processGzipUrl(string $gzipUrl): void
     {
-        if (($stream = fopen($gzipUrl, 'r')) === false) {
-            throw new \Exception('Unable to open file: ' . $gzipUrl);
-        }
+        $attempt = 0;
+        do {
+            if (($stream = fopen($gzipUrl, 'r')) === false) {
+                $this->initClient();
+                $this->output->writeln('Failed to open stream. Retry...');
+            }
+        } while (++$attempt < 3);
 
         stream_filter_append($stream, 'zlib.inflate', STREAM_FILTER_READ, [
             'window' => 32,

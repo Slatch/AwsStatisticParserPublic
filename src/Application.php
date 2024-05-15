@@ -6,30 +6,33 @@ use Aws\Api\DateTimeResult;
 use Aws\S3\Exception\S3Exception;
 use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
-use Doctrine\ORM\EntityManager;
-use Doctrine\ORM\Tools\SchemaTool;
-use FSStats\Db\EntityManagerBuilder;
-use FSStats\Db\Orm\LastProceeded;
-use FSStats\Db\Orm\Stats;
+use Elastic\Elasticsearch\Client;
+use Elastic\Elasticsearch\ClientBuilder;
 use GuzzleHttp\Psr7\Stream;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
 final class Application
 {
-    private S3Client $client;
+    private S3Client $s3client;
+    private Client $elasticClient;
     private OutputInterface $output;
-    private EntityManager $entityManager;
     private DateTimeResult $tokenExpiration;
     private const TOKEN_EXPIRATION_THRESHOLD = 20; // in minutes
 
     public function __construct()
     {
+        $this->elasticClient = ClientBuilder::create()
+            ->setHosts([
+                $_ENV['ELASTICSEARCH_HOST']
+            ])
+            // https://www.elastic.co/guide/en/elasticsearch/client/php-api/current/connecting.html
+            ->setElasticCloudId($_ENV['ELASTICSEARCH_CLOUD_ID'] ?? '')
+            ->setApiKey($_ENV['ELASTICSEARCH_API_KEY'] ?? '')
+            ->build();
         $this->output = new ConsoleOutput();
-        $this->entityManager = (new EntityManagerBuilder())->get();
 
-        $this->initClient();
-        $this->initDb();
+        $this->initS3Client();
     }
 
     public function run(): void
@@ -44,7 +47,7 @@ final class Application
         foreach ($dates as $date) {
             $this->output->writeln('[' . $date . '] Get symlink.txt');
             try {
-                $result = $this->client->getObject([
+                $result = $this->s3client->getObject([
                     'Bucket' => $_ENV['BUCKET_NAME_READ'],
                     'Key' => $_ENV['STATISTIC_FOLDER_PATH'] . 'hive/dt=' . $date . '-01-00/symlink.txt',
                 ]);
@@ -62,22 +65,11 @@ final class Application
 
             $body->close();
 
-            $this->output->writeln(sprintf('[%s] Filter links:', $date));
-            $gzipUrls = $this->filterGzips($gzipUrls);
-            if (empty($gzipUrls)) {
-                $this->output->writeln(sprintf(' > Skipped %s', $date));
-                continue;
-            }
-
             $this->output->writeln('[' . $date . '] Process links');
             $this->processGzips($gzipUrls);
         }
 
         $this->output->writeln('Done');
-
-        while ($_ENV['TERMINATE'] ?? true) {
-            sleep(1);
-        }
     }
 
     private function isNeededToUpdateToken(): bool
@@ -91,7 +83,7 @@ final class Application
             $interval->i <= self::TOKEN_EXPIRATION_THRESHOLD;
     }
 
-    private function initClient(): void
+    private function initS3Client(): void
     {
         $stsClient = new StsClient([
             'region' => $_ENV['REGION_READ'],
@@ -111,7 +103,7 @@ final class Application
         $this->output->writeln('----------');
         $this->output->writeln('');
 
-        $this->client = new S3Client([
+        $this->s3client = new S3Client([
             'version' => 'latest',
             'region' => $_ENV['REGION_READ'],
             'credentials' =>  [
@@ -120,28 +112,7 @@ final class Application
                 'token' => $result['Credentials']['SessionToken']
             ]
         ]);
-        $this->client->registerStreamWrapperV2();
-    }
-
-    private function initDb(): void
-    {
-        $tool = new SchemaTool($this->entityManager);
-        $classes = [
-            $this->entityManager->getClassMetadata(Stats::class),
-            $this->entityManager->getClassMetadata(LastProceeded::class),
-        ];
-        $tool->dropSchema($classes);
-        $tool->createSchema($classes);
-    }
-
-    private function filterGzips(array $gzipUrls): array
-    {
-        /** @var string[] $proccededGzips */
-        $proccededGzips = array_map(function(LastProceeded $lastProceeded) {
-            return $lastProceeded->getGzip();
-        }, $this->entityManager->getRepository(LastProceeded::class)->findAll());
-
-        return array_diff($gzipUrls, $proccededGzips);
+        $this->s3client->registerStreamWrapperV2();
     }
 
     private function processGzips(array $gzipUrls): void
@@ -150,7 +121,7 @@ final class Application
         $this->output->write('Total: ' . $max . ' | Processed: ');
         foreach ($gzipUrls as $index => $gzipUrl) {
             if ($this->isNeededToUpdateToken()) {
-                $this->initClient();
+                $this->initS3Client();
             }
             $this->processGzipUrl($gzipUrl);
             $this->output->write(($index + 1) . ' ');
@@ -164,7 +135,7 @@ final class Application
         $attempt = 0;
         do {
             if (($stream = fopen($gzipUrl, 'r')) === false) {
-                $this->initClient();
+                $this->initS3Client();
                 $this->output->writeln('Failed to open stream. Retry...');
             }
         } while (++$attempt < 3);
@@ -173,41 +144,23 @@ final class Application
             'window' => 32,
         ]);
 
-        $counter = 0;
         while (
             ($data = fgetcsv($stream, 1000)) !== false
         ) {
             // Bucket, Key, VersionId, IsLatest, IsDeleteMarker, Size
-            /*if (strtolower($data[4]) !== 'false') { // isDeleteMarker
-                continue;
-            }
-            if (strtolower($data[3]) !== 'true') { // isLatest
-                continue;
-            }*/
 
-            $stat = new Stats();
-            $stat->setKey($data[1]);
-            $stat->setVersion($data[2]);
-            $stat->setIsLatest($data[3] == 'true');
-            $stat->setIsDeleteMarker($data[4] == 'true');
-            if (!empty($data[5]) || $data[5] === '0') {
-                $stat->setSize((int)$data[5]);
-            }
-
-            $this->entityManager->persist($stat);
-
-            if ((++$counter % $_ENV['BATCH_SIZE']) === 0) {
-                $this->entityManager->flush();
-                $this->entityManager->clear();
-            }
+            $this->elasticClient->index([
+                'index' => $_ENV['INDEX_NAME'],
+                'id' => 'fs-stats-' . time() . '-' . uniqid() . '-' . rand(0, 9999),
+                'body' => [
+                    'key' => $data[1],
+                    'version' => $data[2],
+                    'isLatest' => $data[3] == 'true',
+                    'isDeleteMarker' => $data[4] == 'true',
+                    'size' => $data[5] === '' ? 0 : (int)$data[5],
+                ],
+            ]);
         }
         fclose($stream);
-
-        $lastProceeded = new LastProceeded();
-        $lastProceeded->setGzip($gzipUrl);
-        $this->entityManager->persist($lastProceeded);
-
-        $this->entityManager->flush();
-        $this->entityManager->clear();
     }
 }

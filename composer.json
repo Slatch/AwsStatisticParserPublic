@@ -3,11 +3,15 @@
     "php": "^8.0",
     "aws/aws-sdk-php": "^3.304",
     "vlucas/phpdotenv": "^5.6",
-    "doctrine/orm": "^3",
-    "doctrine/dbal": "^4",
-    "symfony/cache": "^7"
+    "symfony/console": "^7.0",
+    "elasticsearch/elasticsearch": "^8.13"
   },
   "autoload": {
     "psr-4": {"FSStats\\": "src/"}
+  },
+  "config": {
+    "allow-plugins": {
+      "php-http/discovery": false
+    }
   }
 }

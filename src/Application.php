@@ -156,7 +156,7 @@ final class Application
                 'index' => [
                     '_index' => $_ENV['INDEX_NAME'],
                     '_type' => $_ENV['INDEX_TYPE'],
-                    '_id' => 'fs-stats-' . time() . '-' . uniqid() . '-' . rand(0, 9999),
+                    //'_id' => 'fs-stats-' . time() . '-' . uniqid() . '-' . rand(0, 9999),
                 ],
             ];
 

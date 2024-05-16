@@ -166,7 +166,7 @@ final class Application
                 'size' => $data[5] === '' ? 0 : (int)$data[5],
             ];
 
-            if (++$index % 1000 == 0) {
+            if (++$index % 100 == 0) {
                 $this->elasticClient->bulk($params);
 
                 // erase the old bulk request

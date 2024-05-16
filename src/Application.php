@@ -6,8 +6,8 @@ use Aws\Api\DateTimeResult;
 use Aws\S3\Exception\S3Exception;
 use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
-use Elastic\Elasticsearch\Client;
-use Elastic\Elasticsearch\ClientBuilder;
+use Elasticsearch\Client;
+use Elasticsearch\ClientBuilder;
 use GuzzleHttp\Psr7\Stream;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -26,9 +26,6 @@ final class Application
             ->setHosts([
                 $_ENV['ELASTICSEARCH_HOST']
             ])
-            // https://www.elastic.co/guide/en/elasticsearch/client/php-api/current/connecting.html
-            ->setElasticCloudId($_ENV['ELASTICSEARCH_CLOUD_ID'] ?? '')
-            ->setApiKey($_ENV['ELASTICSEARCH_API_KEY'] ?? '')
             ->build();
         $this->output = new ConsoleOutput();
 
@@ -144,23 +141,44 @@ final class Application
             'window' => 32,
         ]);
 
+        $params = ['body' => []];
+        $index = 0;
+
         while (
             ($data = fgetcsv($stream, 1000)) !== false
         ) {
             // Bucket, Key, VersionId, IsLatest, IsDeleteMarker, Size
+            if ($data[3] != 'true' || $data[4] != 'false') {
+                continue;
+            }
 
-            $this->elasticClient->index([
-                'index' => $_ENV['INDEX_NAME'],
-                'id' => 'fs-stats-' . time() . '-' . uniqid() . '-' . rand(0, 9999),
-                'body' => [
-                    'key' => $data[1],
-                    'version' => $data[2],
-                    'isLatest' => $data[3] == 'true',
-                    'isDeleteMarker' => $data[4] == 'true',
-                    'size' => $data[5] === '' ? 0 : (int)$data[5],
+            $params['body'][] = [
+                'index' => [
+                    '_index' => $_ENV['INDEX_NAME'],
+                    '_type' => $_ENV['INDEX_TYPE'],
+                    '_id' => 'fs-stats-' . time() . '-' . uniqid() . '-' . rand(0, 9999),
                 ],
-            ]);
+            ];
+
+            $params['body'][] = [
+                'key' => $data[1],
+                'version' => $data[2],
+                'size' => $data[5] === '' ? 0 : (int)$data[5],
+            ];
+
+            if (++$index % 1000 == 0) {
+                $this->elasticClient->bulk($params);
+
+                // erase the old bulk request
+                $params = ['body' => []];
+            }
         }
+
         fclose($stream);
+
+        // Send the last batch if it exists
+        if (!empty($params['body'])) {
+            $this->elasticClient->bulk($params);
+        }
     }
 }

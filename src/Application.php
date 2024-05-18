@@ -147,6 +147,10 @@ final class Application
         while (
             ($data = fgetcsv($stream, 1000)) !== false
         ) {
+            if (!isset($data[1], $data[2], $data[3], $data[4], $data[5])) {
+                continue;
+            }
+
             // Bucket, Key, VersionId, IsLatest, IsDeleteMarker, Size
             if ($data[3] != 'true' || $data[4] != 'false') {
                 continue;
@@ -156,7 +160,7 @@ final class Application
                 'index' => [
                     '_index' => $_ENV['INDEX_NAME'],
                     '_type' => $_ENV['INDEX_TYPE'],
-                    '_id' => md5($data[1]),
+                    '_id' => 'fs-stat-parser-' . md5($data[1]),
                 ],
             ];
 

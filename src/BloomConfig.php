@@ -10,8 +10,8 @@ class BloomConfig
     public const COMMAND_ADD = 'BF.ADD';
     public const COMMAND_EXISTS = 'BF.EXISTS';
 
-    public const DEFAULT_ERROR_RATE = 0.000000001;
-    public const DEFAULT_CAPACITY = 40000000000;
+    public const DEFAULT_ERROR_RATE = 0.00000001;
+    public const DEFAULT_CAPACITY = 1500000000;
     public const NON_SCALING_FLAG = 'NONSCALING';
 
     private Redis $redis;

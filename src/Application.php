@@ -15,14 +15,11 @@ final class Application
 {
     private S3Client $s3client;
     private OutputInterface $output;
-    private DateTimeResult $tokenExpiration;
     private Redis $redis;
+    private RedisIncrementor $incrementor;
+    private BloomConfig $bloom;
 
-    private const KEY_RESULT_BELOW = 'result_below';
-    private const KEY_COUNT_BELOW = 'count_below';
-    private const KEY_RESULT_EQUAL_OR_MORE = 'result_equal_or_more';
-    private const KEY_COUNT_EQUAL_OR_MORE = 'count_equal_or_more';
-    private const FILE_SIZE_THRESHOLD = 131072;
+    private const FILE_SIZE_THRESHOLD = 131072; // 128 * 1024
 
     public function __construct()
     {
@@ -31,37 +28,29 @@ final class Application
         $this->initS3Client();
 
         $this->redis = new Redis();
+        $this->incrementor = new RedisIncrementor($this->redis);
+        $this->bloom = new BloomConfig($this->redis);
     }
 
-    private function fillRedis(): void
+    private function init(): void
     {
-        if (!$this->redis->exists(self::KEY_RESULT_BELOW)) {
-            $this->redis->set(self::KEY_RESULT_BELOW, 0);
+        $this->redis->connect($_ENV['REDIS_HOST'] ?? '172.17.0.2', $_ENV['REDIS_PORT'] ?? 6379);
+
+        if (!$this->redis->ping()) {
+            $this->output->writeln('<error>Failed to connect to Redis</error>');
+            throw new \Exception('Failed to connect to Redis');
         }
-        if (!$this->redis->exists(self::KEY_COUNT_BELOW)) {
-            $this->redis->set(self::KEY_COUNT_BELOW, 0);
-        }
-        if (!$this->redis->exists(self::KEY_RESULT_EQUAL_OR_MORE)) {
-            $this->redis->set(self::KEY_RESULT_EQUAL_OR_MORE, 0);
-        }
-        if (!$this->redis->exists(self::KEY_COUNT_EQUAL_OR_MORE)) {
-            $this->redis->set(self::KEY_COUNT_EQUAL_OR_MORE, 0);
-        }
+        $this->output->writeln('Connected to Redis');
+
+        $this->incrementor->init();
+        $this->bloom->reserve();
     }
 
     public function run(): void
     {
         $this->output->writeln('Start...');
 
-        $this->redis->connect($_ENV['REDIS_HOST'] ?? '172.17.0.2', $_ENV['REDIS_PORT'] ?? 6379);
-
-        if (!$this->redis->ping()) {
-            $this->output->writeln('<error>Failed to connect to Redis</error>');
-            return;
-        }
-        $this->output->writeln('Connected to Redis');
-
-        $this->fillRedis();
+        $this->init();
 
         $options = getopt('', [
             'dates::',
@@ -97,11 +86,12 @@ final class Application
         $this->redis->close();
         $this->output->writeln('Done');
 
+        $result = $this->incrementor->getResult();
         $this->output->writeln('Result: ');
-        $this->output->writeln('Count below 128KB: ' . $this->redis->get(self::KEY_COUNT_BELOW));
-        $this->output->writeln('Total size below 128KB: ' . $this->redis->get(self::KEY_RESULT_BELOW));
-        $this->output->writeln('Count equal or more 128KB: ' . $this->redis->get(self::KEY_COUNT_EQUAL_OR_MORE));
-        $this->output->writeln('Total size equal or more 128KB: ' . $this->redis->get(self::KEY_RESULT_EQUAL_OR_MORE));
+        $this->output->writeln('Count below 128KB: ' . $result->getCountBelow());
+        $this->output->writeln('Count equal or more 128KB: ' . $result->getCountEqualOrMore());
+        $this->output->writeln('Size below 128KB: ' . $result->getResultBelow());
+        $this->output->writeln('Size equal or more 128KB: ' . $result->getResultEqualOrMore());
     }
 
     private function initS3Client(): void
@@ -114,13 +104,15 @@ final class Application
             'RoleArn' => $_ENV['ARN_ROLE_READ'],
             'RoleSessionName' => 's3-access-temporary-read-' . time(),
         ]);
-        $this->tokenExpiration = $result['Credentials']['Expiration'];
+
+        /** @var DateTimeResult $tokenExpiration */
+        $tokenExpiration = $result['Credentials']['Expiration'];
 
         $this->output->writeln('');
         $this->output->writeln('----------');
         $this->output->writeln('Assumed role info: ');
         $this->output->writeln('Current SessionToken: ' . substr($result['Credentials']['SessionToken'], 0, 10) . '...');
-        $this->output->writeln('Expiration: ' . $this->tokenExpiration->format('Y-m-d H:i:s'));
+        $this->output->writeln('Expiration: ' . $tokenExpiration->format('Y-m-d H:i:s'));
         $this->output->writeln('----------');
         $this->output->writeln('');
 
@@ -174,21 +166,15 @@ final class Application
                 continue;
             }
 
-            $key = md5($data[1]);
-            if ($this->redis->exists($key)) {
+            $key = $data[1];
+            if ($this->bloom->exists($key)) {
                 continue;
             }
 
             $size = (int)$data[5];
-            if ($size >= self::FILE_SIZE_THRESHOLD) {
-                $this->redis->incrBy('result_equal_or_more', $size);
-                $this->redis->incr('count_equal_or_more');
-            } else {
-                $this->redis->incrBy('result_below', $size);
-                $this->redis->incr('count_below');
-            }
 
-            $this->redis->set($key, 1);
+            $this->incrementor->add($size, self::FILE_SIZE_THRESHOLD);
+            $this->bloom->add($key);
         }
 
         fclose($stream);

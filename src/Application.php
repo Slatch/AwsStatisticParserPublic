@@ -17,7 +17,6 @@ final class Application
     private OutputInterface $output;
     private Redis $redis;
     private RedisIncrementor $incrementor;
-    private BloomConfig $bloom;
 
     private const FILE_SIZE_THRESHOLD = 131072; // 128 * 1024
 
@@ -29,7 +28,6 @@ final class Application
 
         $this->redis = new Redis();
         $this->incrementor = new RedisIncrementor($this->redis);
-        $this->bloom = new BloomConfig($this->redis);
     }
 
     private function init(): void
@@ -43,12 +41,6 @@ final class Application
         $this->output->writeln('Connected to Redis');
 
         $this->incrementor->init();
-
-        if ($_ENV['DEV_MODE'] ?? false) {
-            $this->bloom->reserve(0.0001, 150000);
-        } else {
-            $this->bloom->reserve();
-        }
     }
 
     public function run(): void
@@ -171,15 +163,15 @@ final class Application
                 continue;
             }
 
-            $key = $data[1];
-            if ($this->bloom->exists($key)) {
+            $key = md5($data[1]);
+            if ($this->redis->exists($key)) {
                 continue;
             }
 
             $size = (int)$data[5];
 
             $this->incrementor->add($size, self::FILE_SIZE_THRESHOLD);
-            $this->bloom->add($key);
+            $this->redis->set($key, 1);
         }
 
         fclose($stream);

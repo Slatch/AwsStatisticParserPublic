@@ -23,10 +23,16 @@ class BloomConfig
         $this->setName = $setName;
     }
 
-    public function reserve(float $errorRate = self::DEFAULT_ERROR_RATE, int $capacity = self::DEFAULT_CAPACITY): void
+    public function reserve(float $errorRate = self::DEFAULT_ERROR_RATE, int $capacity = self::DEFAULT_CAPACITY, bool $scaling = true): void
     {
+        if ($scaling === true) {
+            $this->redis->rawCommand(self::COMMAND_RESERVE, [
+                $this->setName, $errorRate, $capacity, self::NON_SCALING_FLAG,
+            ]);
+            return;
+        }
         $this->redis->rawCommand(self::COMMAND_RESERVE, [
-            $this->setName, $errorRate, $capacity, self::NON_SCALING_FLAG,
+            $this->setName, $errorRate, $capacity,
         ]);
     }
 

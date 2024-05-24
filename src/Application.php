@@ -43,7 +43,12 @@ final class Application
         $this->output->writeln('Connected to Redis');
 
         $this->incrementor->init();
-        $this->bloom->reserve();
+
+        if ($_ENV['DEV_MODE'] ?? false) {
+            $this->bloom->reserve(0.0001, 150000);
+        } else {
+            $this->bloom->reserve();
+        }
     }
 
     public function run(): void

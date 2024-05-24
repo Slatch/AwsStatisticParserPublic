@@ -10,39 +10,33 @@ class BloomConfig
     public const COMMAND_ADD = 'BF.ADD';
     public const COMMAND_EXISTS = 'BF.EXISTS';
 
-    public const SET_NAME = 'my_set';
     public const DEFAULT_ERROR_RATE = 0.000000001;
-    //public const DEFAULT_ERROR_RATE = 0.0001;
     public const DEFAULT_CAPACITY = 40000000000;
-    //public const DEFAULT_CAPACITY = 150000;
     public const NON_SCALING_FLAG = 'NONSCALING';
 
     private Redis $redis;
-    private float $errorRate = self::DEFAULT_ERROR_RATE;
-    private int $capacity = self::DEFAULT_CAPACITY;
+    private string $setName;
 
-    public function __construct(Redis $client)
+    public function __construct(Redis $client, string $setName = 'my_set')
     {
         $this->redis = $client;
+        $this->setName = $setName;
     }
 
-    public function reserve(): void
+    public function reserve(float $errorRate = self::DEFAULT_ERROR_RATE, int $capacity = self::DEFAULT_CAPACITY): void
     {
         $this->redis->rawCommand(self::COMMAND_RESERVE, [
-            self::SET_NAME,
-            $this->errorRate,
-            $this->capacity,
-            self::NON_SCALING_FLAG,
+            $this->setName, $errorRate, $capacity, self::NON_SCALING_FLAG,
         ]);
     }
 
     public function exists(string $key): bool
     {
-        return $this->redis->rawCommand(BloomConfig::COMMAND_EXISTS, BloomConfig::SET_NAME, $key);
+        return $this->redis->rawCommand(BloomConfig::COMMAND_EXISTS, $this->setName, $key);
     }
 
     public function add(string $key): void
     {
-        $this->redis->rawCommand(self::COMMAND_ADD, self::SET_NAME, $key);
+        $this->redis->rawCommand(self::COMMAND_ADD, $this->setName, $key);
     }
 }

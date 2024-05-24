@@ -6,35 +6,63 @@ use Aws\Api\DateTimeResult;
 use Aws\S3\Exception\S3Exception;
 use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
-use Elasticsearch\Client;
-use Elasticsearch\ClientBuilder;
 use GuzzleHttp\Psr7\Stream;
+use Redis;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
 final class Application
 {
     private S3Client $s3client;
-    private Client $elasticClient;
     private OutputInterface $output;
     private DateTimeResult $tokenExpiration;
-    private const TOKEN_EXPIRATION_THRESHOLD = 20; // in minutes
+    private Redis $redis;
+
+    private const KEY_RESULT_BELOW = 'result_below';
+    private const KEY_COUNT_BELOW = 'count_below';
+    private const KEY_RESULT_EQUAL_OR_MORE = 'result_equal_or_more';
+    private const KEY_COUNT_EQUAL_OR_MORE = 'count_equal_or_more';
+    private const FILE_SIZE_THRESHOLD = 131072;
 
     public function __construct()
     {
-        $this->elasticClient = ClientBuilder::create()
-            ->setHosts([
-                $_ENV['ELASTICSEARCH_HOST']
-            ])
-            ->build();
         $this->output = new ConsoleOutput();
 
         $this->initS3Client();
+
+        $this->redis = new Redis();
+    }
+
+    private function fillRedis(): void
+    {
+        if (!$this->redis->exists(self::KEY_RESULT_BELOW)) {
+            $this->redis->set(self::KEY_RESULT_BELOW, 0);
+        }
+        if (!$this->redis->exists(self::KEY_COUNT_BELOW)) {
+            $this->redis->set(self::KEY_COUNT_BELOW, 0);
+        }
+        if (!$this->redis->exists(self::KEY_RESULT_EQUAL_OR_MORE)) {
+            $this->redis->set(self::KEY_RESULT_EQUAL_OR_MORE, 0);
+        }
+        if (!$this->redis->exists(self::KEY_COUNT_EQUAL_OR_MORE)) {
+            $this->redis->set(self::KEY_COUNT_EQUAL_OR_MORE, 0);
+        }
     }
 
     public function run(): void
     {
         $this->output->writeln('Start...');
+
+        $this->redis->connect($_ENV['REDIS_HOST'] ?? '172.17.0.2', $_ENV['REDIS_PORT'] ?? 6379);
+
+        if (!$this->redis->ping()) {
+            $this->output->writeln('<error>Failed to connect to Redis</error>');
+            return;
+        }
+        $this->output->writeln('Connected to Redis');
+
+        $this->fillRedis();
+
         $options = getopt('', [
             'dates::',
         ]);
@@ -66,18 +94,14 @@ final class Application
             $this->processGzips($gzipUrls);
         }
 
+        $this->redis->close();
         $this->output->writeln('Done');
-    }
 
-    private function isNeededToUpdateToken(): bool
-    {
-        $origin = new \DateTime();
-        $target = $this->tokenExpiration;
-
-        $interval = $origin->diff($target);
-        return
-            $interval->h === 0 &&
-            $interval->i <= self::TOKEN_EXPIRATION_THRESHOLD;
+        $this->output->writeln('Result: ');
+        $this->output->writeln('Count below 128KB: ' . $this->redis->get(self::KEY_COUNT_BELOW));
+        $this->output->writeln('Total size below 128KB: ' . $this->redis->get(self::KEY_RESULT_BELOW));
+        $this->output->writeln('Count equal or more 128KB: ' . $this->redis->get(self::KEY_COUNT_EQUAL_OR_MORE));
+        $this->output->writeln('Total size equal or more 128KB: ' . $this->redis->get(self::KEY_RESULT_EQUAL_OR_MORE));
     }
 
     private function initS3Client(): void
@@ -117,9 +141,6 @@ final class Application
         $max = count($gzipUrls);
         $this->output->write('Total: ' . $max . ' | Processed: ');
         foreach ($gzipUrls as $index => $gzipUrl) {
-            if ($this->isNeededToUpdateToken()) {
-                $this->initS3Client();
-            }
             $this->processGzipUrl($gzipUrl);
             $this->output->write(($index + 1) . ' ');
         }
@@ -141,48 +162,35 @@ final class Application
             'window' => 32,
         ]);
 
-        $params = ['body' => []];
-        $index = 0;
-
         while (
             ($data = fgetcsv($stream, 1000)) !== false
         ) {
-            if (!isset($data[1], $data[2], $data[3], $data[4], $data[5])) {
+            if (!isset($data[1], $data[3], $data[4], $data[5])) {
                 continue;
             }
 
             // Bucket, Key, VersionId, IsLatest, IsDeleteMarker, Size
-            if ($data[3] != 'true' || $data[4] != 'false') {
+            if ($data[3] != 'true' || $data[4] != 'false' || $data[5] === '') {
                 continue;
             }
 
-            $params['body'][] = [
-                'index' => [
-                    '_index' => $_ENV['INDEX_NAME'],
-                    '_type' => $_ENV['INDEX_TYPE'],
-                    '_id' => 'fs-stat-parser-' . md5($data[1]),
-                ],
-            ];
-
-            $params['body'][] = [
-                'key' => $data[1],
-                'version' => $data[2],
-                'size' => $data[5] === '' ? 0 : (int)$data[5],
-            ];
-
-            if (++$index % 100 == 0) {
-                $this->elasticClient->bulk($params);
-
-                // erase the old bulk request
-                $params = ['body' => []];
+            $key = md5($data[1]);
+            if ($this->redis->exists($key)) {
+                continue;
             }
+
+            $size = (int)$data[5];
+            if ($size >= self::FILE_SIZE_THRESHOLD) {
+                $this->redis->incrBy('result_equal_or_more', $size);
+                $this->redis->incr('count_equal_or_more');
+            } else {
+                $this->redis->incrBy('result_below', $size);
+                $this->redis->incr('count_below');
+            }
+
+            $this->redis->set($key, 1);
         }
 
         fclose($stream);
-
-        // Send the last batch if it exists
-        if (!empty($params['body'])) {
-            $this->elasticClient->bulk($params);
-        }
     }
 }

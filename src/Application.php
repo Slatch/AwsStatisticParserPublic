@@ -16,7 +16,7 @@ final class Application
     private S3Client $s3client;
     private OutputInterface $output;
     private Redis $redis;
-    private RedisIncrementor $incrementor;
+    private RedisChecker $checker;
 
     private const FILE_SIZE_THRESHOLD = 131072; // 128 * 1024
 
@@ -27,7 +27,7 @@ final class Application
         $this->initS3Client();
 
         $this->redis = new Redis();
-        $this->incrementor = new RedisIncrementor($this->redis);
+        $this->checker = new RedisChecker($this->redis);
     }
 
     private function init(): void
@@ -40,7 +40,7 @@ final class Application
         }
         $this->output->writeln('Connected to Redis');
 
-        $this->incrementor->init();
+        $this->checker->init();
     }
 
     public function run(): void
@@ -56,6 +56,10 @@ final class Application
         $dates = explode(',', $date);
 
         foreach ($dates as $date) {
+            if ($this->checker->hasDate($date)) {
+                $this->output->writeln('[' . $date . '] Already processed');
+                continue;
+            }
             $this->output->writeln('[' . $date . '] Get symlink.txt');
             try {
                 $result = $this->s3client->getObject([
@@ -78,12 +82,13 @@ final class Application
 
             $this->output->writeln('[' . $date . '] Process links');
             $this->processGzips($gzipUrls);
+            $this->checker->writeDate($date);
         }
 
         $this->redis->close();
         $this->output->writeln('Done');
 
-        $result = $this->incrementor->getResult();
+        $result = $this->checker->getResult();
         $this->output->writeln('Result: ');
         $this->output->writeln('Count below 128KB: ' . $result->getCountBelow());
         $this->output->writeln('Count equal or more 128KB: ' . $result->getCountEqualOrMore());
@@ -130,8 +135,13 @@ final class Application
         $max = count($gzipUrls);
         $this->output->write('Total: ' . $max . ' | Processed: ');
         foreach ($gzipUrls as $index => $gzipUrl) {
+            if ($this->checker->hasUrl($gzipUrl)) {
+                $this->output->writeln('[' . $gzipUrl . '] Already processed');
+                continue;
+            }
             $this->processGzipUrl($gzipUrl);
             $this->output->write(($index + 1) . ' ');
+            $this->checker->writeUrl($gzipUrl);
         }
 
         $this->output->writeln(PHP_EOL);
@@ -158,6 +168,7 @@ final class Application
                 continue;
             }
 
+            // $data[0], $data[1], $data[2], $data[3], $data[4], $data[5]
             // Bucket, Key, VersionId, IsLatest, IsDeleteMarker, Size
             if ($data[3] != 'true' || $data[4] != 'false' || $data[5] === '') {
                 continue;
@@ -170,7 +181,7 @@ final class Application
 
             $size = (int)$data[5];
 
-            $this->incrementor->add($size, self::FILE_SIZE_THRESHOLD);
+            $this->checker->increment($size, self::FILE_SIZE_THRESHOLD);
             $this->redis->set($key, 1);
         }
 

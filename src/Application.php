@@ -132,14 +132,13 @@ final class Application
     private function processGzips(array $gzipUrls): void
     {
         $max = count($gzipUrls);
-        $this->output->write('Total: ' . $max . ' | Processed: ');
+        $this->output->writeln('Total: ' . $max);
         foreach ($gzipUrls as $index => $gzipUrl) {
             if ($this->checker->hasUrl($gzipUrl)) {
-                $this->output->writeln('URL "' . $gzipUrl . '" Already processed. Skip');
                 continue;
             }
             $this->processGzipUrl($gzipUrl);
-            $this->output->write(($index + 1) . ' ');
+            $this->output->writeln(($index + 1) . '/' . $max);
             $this->checker->writeUrl($gzipUrl);
         }
 
@@ -226,7 +225,7 @@ final class Application
 }
 
 /**
-docker run -e SERVICE_NAME="st-parser" -e AWS_ACCESS_KEY_ID="" -e AWS_SECRET_ACCESS_KEY="" -e ARN_ROLE_READ="arn:aws:iam::811130481316:role/ppf-st-parser-s3-role" -e BUCKET_NAME_READ="ppf-logs-20190701122158291000000001" -e REGION_READ="us-east-1" -e STATISTIC_FOLDER_PATH="fs_s3_statistic/ppf-fileservice-20180927091328208800000001/fs_s3_inventory/"  -it -d --name parser-2024-03-05 --rm statistic-aggregator:v2 php app.php --dates=2024-03-05
+docker run -e SERVICE_NAME="st-parser" -e AWS_ACCESS_KEY_ID="" -e AWS_SECRET_ACCESS_KEY="" -e ARN_ROLE_READ="arn:aws:iam::811130481316:role/ppf-st-parser-s3-role" -e BUCKET_NAME_READ="ppf-logs-20190701122158291000000001" -e REGION_READ="us-east-1" -e STATISTIC_FOLDER_PATH="fs_s3_statistic/ppf-fileservice-20180927091328208800000001/fs_s3_inventory/"  -it --name parser-2024-03-05 --rm statistic-aggregator:v2 php app.php --dates=2024-03-05
 
 ssh -A andrii.leonov@bastion-v2.pdffiller.com -i ~/.ssh/id_rsa
 ssh ubuntu@10.20.105.147

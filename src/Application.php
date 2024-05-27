@@ -6,8 +6,10 @@ use Aws\Api\DateTimeResult;
 use Aws\S3\Exception\S3Exception;
 use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
+use FSStats\Model\LastDate;
+use FSStats\Model\LastUrl;
+use FSStats\Model\Usage;
 use GuzzleHttp\Psr7\Stream;
-use Redis;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -15,10 +17,6 @@ final class Application
 {
     private S3Client $s3client;
     private OutputInterface $output;
-    private Redis $redis;
-    private RedisChecker $checker;
-
-    private const FILE_SIZE_THRESHOLD = 131072; // 128 * 1024
 
     public function __construct()
     {
@@ -26,29 +24,12 @@ final class Application
 
         $this->initS3Client();
 
-        $this->redis = new Redis();
-        $this->checker = new RedisChecker($this->redis);
-    }
-
-    private function init(): void
-    {
-        $this->output->writeln('Connecting to Redis...');
-        $this->redis->connect($_ENV['REDIS_HOST'] ?? '172.17.0.2', $_ENV['REDIS_PORT'] ?? 6379);
-
-        if (!$this->redis->ping()) {
-            $this->output->writeln('<error>Failed to connect to Redis</error>');
-            throw new \Exception('Failed to connect to Redis');
-        }
-        $this->output->writeln('Connected to Redis');
-
-        $this->checker->init();
+        $this->initDB();
     }
 
     public function run(): void
     {
         $this->output->writeln('Start...');
-
-        $this->init();
 
         $options = getopt('', [
             'dates::',
@@ -57,7 +38,7 @@ final class Application
         $dates = explode(',', $date);
 
         foreach ($dates as $date) {
-            if ($this->checker->hasDate($date)) {
+            if ($this->isDateExists($date)) {
                 $this->output->writeln('[' . $date . '] Already processed. Skip');
                 continue;
             }
@@ -84,20 +65,11 @@ final class Application
 
             $this->output->writeln('[' . $date . '] Process links');
             $this->processGzips($gzipUrls);
-            $this->checker->writeDate($date);
+
+            $this->writeDate($date);
         }
 
-        $this->redis->close();
         $this->output->writeln('Done');
-
-        $result = $this->checker->getResult();
-        $this->output->writeln('Result for proceeded date: ');
-
-        $this->output->writeln('Count below 128Kb: ' . $result->getCountBelow());
-        $this->output->writeln('Size below 128Kb: ' . $result->getResultBelow());
-
-        $this->output->writeln('Count more 128Kb: ' . $result->getCountMore());
-        $this->output->writeln('Size more 128Kb: ' . $result->getResultMore());
     }
 
     private function initS3Client(): void
@@ -132,15 +104,14 @@ final class Application
     private function processGzips(array $gzipUrls): void
     {
         $max = count($gzipUrls);
-        $this->output->write('Total: ' . $max . ' | Processed: ');
+        $this->output->writeln('Total: ' . $max);
         foreach ($gzipUrls as $index => $gzipUrl) {
-            if ($this->checker->hasUrl($gzipUrl)) {
-                $this->output->writeln('URL "' . $gzipUrl . '" Already processed. Skip');
+            if ($this->isUrlExists($gzipUrl)) {
                 continue;
             }
             $this->processGzipUrl($gzipUrl);
-            $this->output->write(($index + 1) . ' ');
-            $this->checker->writeUrl($gzipUrl);
+            $this->output->writeln(($index + 1) . '/' . $max);
+            $this->writeUrl($gzipUrl);
         }
 
         $this->output->writeln(PHP_EOL);
@@ -176,7 +147,10 @@ final class Application
                 continue;
             }
 
-            $storage[md5($data[1])] = (int)$data[5];
+            $storage []= [
+                'key' => $data[1],
+                'size' => (int)$data[5],
+            ];
 
             if (++$iterator % 1000 === 0) {
                 $this->processStorage($storage);
@@ -193,42 +167,37 @@ final class Application
 
     private function processStorage(array $storage): void
     {
-        $result = $this->redis->sMisMember('myKey', ...array_keys($storage));
-
-        $remaining = $this->getRemaining($storage, array_filter($result));
-
-        if (empty($remaining)) {
-            return;
-        }
-
-        $arrayAbove128 = array_filter($remaining, function ($size) {
-            return $size >= self::FILE_SIZE_THRESHOLD;
-        });
-        $arrayBelow128 = array_filter($remaining, function ($size) {
-            return $size < self::FILE_SIZE_THRESHOLD;
-        });
-
-        $this->redis->sAdd('myKey', ...array_keys($remaining));
-
-        $this->redis->incrBy(RedisChecker::RESULT_MORE_128, array_sum($arrayAbove128));
-        $this->redis->incrBy(RedisChecker::COUNT_MORE_128, count($arrayAbove128));
-
-        $this->redis->incrBy(RedisChecker::RESULT_BELOW_128, array_sum($arrayBelow128));
-        $this->redis->incrBy(RedisChecker::COUNT_BELOW_128, count($arrayBelow128));
+        Usage::insert($storage);
     }
 
-    private function getRemaining(array $storage, array $existingKeys): array
+    private function initDB()
     {
-        $values = array_intersect_key(array_keys($storage), array_flip(array_keys($existingKeys)));
+        $capsule = new \Illuminate\Database\Capsule\Manager();
+        $capsule->addConnection(Connection::get());
+        $capsule->bootEloquent();
+    }
 
-        return array_diff_key($storage, array_flip($values));
+    private function isDateExists(string $date): bool
+    {
+        return LastDate::query()->where('date', $date)->exists();
+    }
+
+    private function writeDate(string $date): void
+    {
+        LastDate::query()->insert([
+            'date' => $date,
+        ]);
+    }
+
+    private function isUrlExists(string $url): bool
+    {
+        return LastUrl::query()->where('url', $url)->exists();
+    }
+
+    private function writeUrl(string $url): void
+    {
+        LastUrl::query()->insert([
+            'url' => $url,
+        ]);
     }
 }
-
-/**
-docker run -e SERVICE_NAME="st-parser" -e AWS_ACCESS_KEY_ID="" -e AWS_SECRET_ACCESS_KEY="" -e ARN_ROLE_READ="arn:aws:iam::811130481316:role/ppf-st-parser-s3-role" -e BUCKET_NAME_READ="ppf-logs-20190701122158291000000001" -e REGION_READ="us-east-1" -e STATISTIC_FOLDER_PATH="fs_s3_statistic/ppf-fileservice-20180927091328208800000001/fs_s3_inventory/"  -it -d --name parser-2024-03-05 --rm statistic-aggregator:v2 php app.php --dates=2024-03-05
-
-ssh -A andrii.leonov@bastion-v2.pdffiller.com -i ~/.ssh/id_rsa
-ssh ubuntu@10.20.105.147
-sudo su
- */

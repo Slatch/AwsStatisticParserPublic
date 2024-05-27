@@ -6,10 +6,10 @@ use Redis;
 
 class RedisChecker
 {
-    private const KEY_RESULT_BELOW = 'result_below';
-    private const KEY_COUNT_BELOW = 'count_below';
-    private const KEY_RESULT_EQUAL_OR_MORE = 'result_equal_or_more';
-    private const KEY_COUNT_EQUAL_OR_MORE = 'count_equal_or_more';
+    public const KEY_RESULT_BELOW = 'result_below';
+    public const KEY_COUNT_BELOW = 'count_below';
+    public const KEY_RESULT_EQUAL_OR_MORE = 'result_equal_or_more';
+    public const KEY_COUNT_EQUAL_OR_MORE = 'count_equal_or_more';
 
     private Redis $redis;
 

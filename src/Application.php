@@ -32,6 +32,7 @@ final class Application
 
     private function init(): void
     {
+        $this->output->writeln('Connecting to Redis...');
         $this->redis->connect($_ENV['REDIS_HOST'] ?? '172.17.0.2', $_ENV['REDIS_PORT'] ?? 6379);
 
         if (!$this->redis->ping()) {
@@ -57,10 +58,10 @@ final class Application
 
         foreach ($dates as $date) {
             if ($this->checker->hasDate($date)) {
-                $this->output->writeln('[' . $date . '] Already processed');
+                $this->output->writeln('[' . $date . '] Already processed. Skip');
                 continue;
             }
-            $this->output->writeln('[' . $date . '] Get symlink.txt');
+            $this->output->writeln('[' . $date . '] Get symlink.txt from s3');
             try {
                 $result = $this->s3client->getObject([
                     'Bucket' => $_ENV['BUCKET_NAME_READ'],
@@ -79,6 +80,7 @@ final class Application
             $gzipUrls = explode(PHP_EOL, $body->getContents());
 
             $body->close();
+            unset($body, $result);
 
             $this->output->writeln('[' . $date . '] Process links');
             $this->processGzips($gzipUrls);
@@ -102,6 +104,7 @@ final class Application
             'region' => $_ENV['REGION_READ'],
             'version' => 'latest',
         ]);
+        $this->output->writeln('Assuming role...');
         $result = $stsClient->AssumeRole([
             'RoleArn' => $_ENV['ARN_ROLE_READ'],
             'RoleSessionName' => 's3-access-temporary-read-' . time(),
@@ -110,13 +113,7 @@ final class Application
         /** @var DateTimeResult $tokenExpiration */
         $tokenExpiration = $result['Credentials']['Expiration'];
 
-        $this->output->writeln('');
-        $this->output->writeln('----------');
-        $this->output->writeln('Assumed role info: ');
-        $this->output->writeln('Current SessionToken: ' . substr($result['Credentials']['SessionToken'], 0, 10) . '...');
-        $this->output->writeln('Expiration: ' . $tokenExpiration->format('Y-m-d H:i:s'));
-        $this->output->writeln('----------');
-        $this->output->writeln('');
+        $this->output->writeln('Assumed role token expiration: ' . $tokenExpiration->format('Y-m-d H:i:s'));
 
         $this->s3client = new S3Client([
             'version' => 'latest',
@@ -136,7 +133,7 @@ final class Application
         $this->output->write('Total: ' . $max . ' | Processed: ');
         foreach ($gzipUrls as $index => $gzipUrl) {
             if ($this->checker->hasUrl($gzipUrl)) {
-                $this->output->writeln('[' . $gzipUrl . '] Already processed');
+                $this->output->writeln('URL "' . $gzipUrl . '" Already processed. Skip');
                 continue;
             }
             $this->processGzipUrl($gzipUrl);
@@ -161,6 +158,9 @@ final class Application
             'window' => 32,
         ]);
 
+        $storage = [];
+        $iterator = 0;
+
         while (
             ($data = fgetcsv($stream, 1000)) !== false
         ) {
@@ -174,17 +174,50 @@ final class Application
                 continue;
             }
 
-            $key = md5($data[1]);
-            if ($this->redis->exists($key)) {
-                continue;
+            $storage[md5($data[1])] = (int)$data[5];
+
+            if (++$iterator % 10 === 0) {
+                $this->processStorage($storage);
+                $storage = [];
             }
-
-            $size = (int)$data[5];
-
-            $this->checker->increment($size, self::FILE_SIZE_THRESHOLD);
-            $this->redis->set($key, 1);
         }
 
         fclose($stream);
+
+        if (!empty($storage)) {
+            $this->processStorage($storage);
+        }
+    }
+
+    private function processStorage(array $storage): void
+    {
+        $result = $this->redis->sMisMember('myKey', ...array_keys($storage));
+
+        $remaining = $this->getRemaining($storage, array_filter($result));
+
+        $arrayAbove128 = array_filter($remaining, function ($size) {
+            return $size >= self::FILE_SIZE_THRESHOLD;
+        });
+        $arrayBelow128 = array_filter($remaining, function ($size) {
+            return $size < self::FILE_SIZE_THRESHOLD;
+        });
+
+        $sumAbove128 = array_sum($arrayAbove128);
+        $sumBelow128 = array_sum($arrayBelow128);
+
+        $this->redis->sAdd('myKey', ...array_keys($remaining));
+
+        $this->redis->incrBy(RedisChecker::KEY_RESULT_EQUAL_OR_MORE, $sumAbove128);
+        $this->redis->incrBy(RedisChecker::KEY_COUNT_EQUAL_OR_MORE, count($arrayAbove128));
+
+        $this->redis->incrBy(RedisChecker::KEY_RESULT_EQUAL_OR_MORE, $sumBelow128);
+        $this->redis->incrBy(RedisChecker::KEY_COUNT_BELOW, count($arrayBelow128));
+    }
+
+    private function getRemaining(array $storage, array $existingKeys): array
+    {
+        $values = array_intersect_key(array_keys($storage), array_flip(array_keys($existingKeys)));
+
+        return array_diff_key($storage, array_flip($values));
     }
 }

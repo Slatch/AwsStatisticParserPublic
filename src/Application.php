@@ -176,7 +176,7 @@ final class Application
 
             $storage[md5($data[1])] = (int)$data[5];
 
-            if (++$iterator % 10 === 0) {
+            if (++$iterator % 1000 === 0) {
                 $this->processStorage($storage);
                 $storage = [];
             }

@@ -207,11 +207,11 @@ final class Application
 
         $this->redis->sAdd('myKey', ...array_keys($remaining));
 
-        $this->redis->incrBy(RedisChecker::KEY_RESULT_EQUAL_OR_MORE, $sumAbove128);
-        $this->redis->incrBy(RedisChecker::KEY_COUNT_EQUAL_OR_MORE, count($arrayAbove128));
+        $this->redis->incrBy(RedisChecker::RESULT_MORE_128, $sumAbove128);
+        $this->redis->incrBy(RedisChecker::COUNT_MORE_128, count($arrayAbove128));
 
-        $this->redis->incrBy(RedisChecker::KEY_RESULT_EQUAL_OR_MORE, $sumBelow128);
-        $this->redis->incrBy(RedisChecker::KEY_COUNT_BELOW, count($arrayBelow128));
+        $this->redis->incrBy(RedisChecker::RESULT_BELOW_128, $sumBelow128);
+        $this->redis->incrBy(RedisChecker::COUNT_BELOW_128, count($arrayBelow128));
     }
 
     private function getRemaining(array $storage, array $existingKeys): array

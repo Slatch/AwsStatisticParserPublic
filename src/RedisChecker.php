@@ -6,10 +6,10 @@ use Redis;
 
 class RedisChecker
 {
-    public const KEY_RESULT_BELOW = 'result_below';
-    public const KEY_COUNT_BELOW = 'count_below';
-    public const KEY_RESULT_EQUAL_OR_MORE = 'result_equal_or_more';
-    public const KEY_COUNT_EQUAL_OR_MORE = 'count_equal_or_more';
+    public const RESULT_BELOW_128 = 'result_below';
+    public const COUNT_BELOW_128 = 'count_below';
+    public const RESULT_MORE_128 = 'result_equal_or_more';
+    public const COUNT_MORE_128 = 'count_equal_or_more';
 
     private Redis $redis;
 
@@ -20,30 +20,18 @@ class RedisChecker
 
     public function init(): void
     {
-        if (!$this->redis->exists(self::KEY_RESULT_BELOW)) {
-            $this->redis->set(self::KEY_RESULT_BELOW, 0);
+        if (!$this->redis->exists(self::RESULT_BELOW_128)) {
+            $this->redis->set(self::RESULT_BELOW_128, 0);
         }
-        if (!$this->redis->exists(self::KEY_COUNT_BELOW)) {
-            $this->redis->set(self::KEY_COUNT_BELOW, 0);
+        if (!$this->redis->exists(self::COUNT_BELOW_128)) {
+            $this->redis->set(self::COUNT_BELOW_128, 0);
         }
-        if (!$this->redis->exists(self::KEY_RESULT_EQUAL_OR_MORE)) {
-            $this->redis->set(self::KEY_RESULT_EQUAL_OR_MORE, 0);
+        if (!$this->redis->exists(self::RESULT_MORE_128)) {
+            $this->redis->set(self::RESULT_MORE_128, 0);
         }
-        if (!$this->redis->exists(self::KEY_COUNT_EQUAL_OR_MORE)) {
-            $this->redis->set(self::KEY_COUNT_EQUAL_OR_MORE, 0);
+        if (!$this->redis->exists(self::COUNT_MORE_128)) {
+            $this->redis->set(self::COUNT_MORE_128, 0);
         }
-    }
-
-    public function increment(int $size, int $threshold): void
-    {
-        if ($size >= $threshold) {
-            $this->redis->incrBy(self::KEY_RESULT_EQUAL_OR_MORE, $size);
-            $this->redis->incr(self::KEY_COUNT_EQUAL_OR_MORE);
-            return;
-        }
-
-        $this->redis->incrBy(self::KEY_RESULT_BELOW, $size);
-        $this->redis->incr(self::KEY_COUNT_BELOW);
     }
 
     public function hasDate(string $date): bool
@@ -69,10 +57,10 @@ class RedisChecker
     public function getResult(): ResultDto
     {
         return new ResultDto(
-            (int)$this->redis->get(self::KEY_COUNT_BELOW),
-            (int)$this->redis->get(self::KEY_COUNT_EQUAL_OR_MORE),
-            (int)$this->redis->get(self::KEY_RESULT_BELOW),
-            (int)$this->redis->get(self::KEY_RESULT_EQUAL_OR_MORE)
+            (int)$this->redis->get(self::COUNT_BELOW_128),
+            (int)$this->redis->get(self::COUNT_MORE_128),
+            (int)$this->redis->get(self::RESULT_BELOW_128),
+            (int)$this->redis->get(self::RESULT_MORE_128)
         );
     }
 }

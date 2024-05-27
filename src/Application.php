@@ -174,7 +174,7 @@ final class Application
                 continue;
             }
 
-            $storage[md5($data[1])] = (int)$data[5];
+            $storage['_' . md5($data[1])] = (int)$data[5];
 
             if (++$iterator % 1000 === 0) {
                 $this->processStorage($storage);

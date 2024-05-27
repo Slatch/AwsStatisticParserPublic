@@ -15,3 +15,6 @@ CMD [ "php", "./app.php" ]
 # git clone https://github.com/Slatch/AwsStatisticParserPublic parser
 # docker build -t statistic-aggregator:v2 .
 # docker run -it --rm statistic-aggregator:v2 php app.php --dates=...
+
+
+# docker run -it --rm statistic-aggregator:v2 php app.php --dates=...

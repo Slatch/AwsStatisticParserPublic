@@ -5,16 +5,16 @@ namespace FSStats;
 class ResultDto
 {
     private int $countBelow;
-    private int $countEqualOrMore;
+    private int $countMore;
     private int $resultBelow;
-    private int $resultEqualOrMore;
+    private int $resultMore;
 
-    public function __construct(int $countBelow, int $countEqualOrMore, int $resultBelow, int $resultEqualOrMore)
+    public function __construct(int $countBelow, int $countMore, int $resultBelow, int $resultMore)
     {
         $this->countBelow = $countBelow;
-        $this->countEqualOrMore = $countEqualOrMore;
+        $this->countMore = $countMore;
         $this->resultBelow = $resultBelow;
-        $this->resultEqualOrMore = $resultEqualOrMore;
+        $this->resultMore = $resultMore;
     }
 
     public function getCountBelow(): int
@@ -22,9 +22,9 @@ class ResultDto
         return $this->countBelow;
     }
 
-    public function getCountEqualOrMore(): int
+    public function getCountMore(): int
     {
-        return $this->countEqualOrMore;
+        return $this->countMore;
     }
 
     public function getResultBelow(): int
@@ -32,8 +32,8 @@ class ResultDto
         return $this->resultBelow;
     }
 
-    public function getResultEqualOrMore(): int
+    public function getResultMore(): int
     {
-        return $this->resultEqualOrMore;
+        return $this->resultMore;
     }
 }

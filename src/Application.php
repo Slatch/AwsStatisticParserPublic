@@ -91,11 +91,13 @@ final class Application
         $this->output->writeln('Done');
 
         $result = $this->checker->getResult();
-        $this->output->writeln('Result: ');
-        $this->output->writeln('Count below 128KB: ' . $result->getCountBelow());
-        $this->output->writeln('Count equal or more 128KB: ' . $result->getCountEqualOrMore());
-        $this->output->writeln('Size below 128KB: ' . $result->getResultBelow());
-        $this->output->writeln('Size equal or more 128KB: ' . $result->getResultEqualOrMore());
+        $this->output->writeln('Result for proceeded date: ');
+
+        $this->output->writeln('Count below 128Kb: ' . $result->getCountBelow());
+        $this->output->writeln('Size below 128Kb: ' . $result->getResultBelow());
+
+        $this->output->writeln('Count more 128Kb: ' . $result->getCountMore());
+        $this->output->writeln('Size more 128Kb: ' . $result->getResultMore());
     }
 
     private function initS3Client(): void
@@ -202,15 +204,12 @@ final class Application
             return $size < self::FILE_SIZE_THRESHOLD;
         });
 
-        $sumAbove128 = array_sum($arrayAbove128);
-        $sumBelow128 = array_sum($arrayBelow128);
-
         $this->redis->sAdd('myKey', ...array_keys($remaining));
 
-        $this->redis->incrBy(RedisChecker::RESULT_MORE_128, $sumAbove128);
+        $this->redis->incrBy(RedisChecker::RESULT_MORE_128, array_sum($arrayAbove128));
         $this->redis->incrBy(RedisChecker::COUNT_MORE_128, count($arrayAbove128));
 
-        $this->redis->incrBy(RedisChecker::RESULT_BELOW_128, $sumBelow128);
+        $this->redis->incrBy(RedisChecker::RESULT_BELOW_128, array_sum($arrayBelow128));
         $this->redis->incrBy(RedisChecker::COUNT_BELOW_128, count($arrayBelow128));
     }
 

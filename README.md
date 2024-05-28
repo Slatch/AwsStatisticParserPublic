@@ -13,7 +13,7 @@ USE stat_parser;
 
 
 
-CREATE TABLE IF NOT EXISTS `usage` (`id` int(11) NOT NULL auto_increment,`key` varchar(250)  NOT NULL default '',`size` int(11) NOT NULL default '0', PRIMARY KEY  (`id`));
+CREATE TABLE IF NOT EXISTS `usage` (`id` int(11) NOT NULL auto_increment,`key` varchar(32)  NOT NULL default '',`size` int(11) NOT NULL default '0', PRIMARY KEY  (`id`));
 
 CREATE TABLE IF NOT EXISTS `last_date` (`id` int(11) NOT NULL auto_increment,`date` varchar(10)  NOT NULL default '',PRIMARY KEY  (`id`));
 

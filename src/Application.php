@@ -10,6 +10,7 @@ use FSStats\Model\LastDate;
 use FSStats\Model\LastUrl;
 use FSStats\Model\Usage;
 use GuzzleHttp\Psr7\Stream;
+use Illuminate\Database\Capsule\Manager;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -148,7 +149,7 @@ final class Application
             }
 
             $storage []= [
-                'key' => $data[1],
+                'key' => md5($data[1]),
                 'size' => (int)$data[5],
             ];
 
@@ -172,8 +173,17 @@ final class Application
 
     private function initDB()
     {
-        $capsule = new \Illuminate\Database\Capsule\Manager();
-        $capsule->addConnection(Connection::get());
+        $capsule = new Manager();
+        $capsule->addConnection([
+            'driver' => 'mysql',
+            'host' => $_ENV['DB_HOST'] ?? 'localhost',
+            'database' => $_ENV['DB_NAME'] ?? 'stat_parser',
+            'username' => $_ENV['DB_USER'] ?? 'root',
+            'password' => $_ENV['DB_PASS'] ?? 'my-secret-pw',
+            'charset' => 'utf8',
+            'collation' => 'utf8_unicode_ci',
+            'prefix' => '',
+        ]);
         $capsule->bootEloquent();
     }
 

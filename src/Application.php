@@ -138,6 +138,7 @@ final class Application
 
         $this->output->writeln('Path: ' . $path);
 
+        $iterations = 0;
         while (
             ($data = fgetcsv($stream, 1000)) !== false
         ) {
@@ -152,23 +153,41 @@ final class Application
             }
 
             fputcsv($targetFile, [md5($data[1]), (int)$data[5]]);
+            if (++$iterations === 500) {
+                break;
+            }
         }
 
         fclose($targetFile);
         fclose($stream);
 
-        $attempt = 0;
-        do {
-            $res = $this->connection
-                ->statement("LOAD DATA INFILE '?' INTO TABLE `?` (`key`, `size`) FIELDS TERMINATED BY ',' IGNORE 1 ROWS;", [
-                    'usage_test',
+        try {
+            $attempt = 0;
+            do {
+                $res = $this->connection
+                    ->statement("
+                    LOAD DATA INFILE '?'
+                    INTO TABLE `?`
+                    FIELDS TERMINATED BY ','
+                    ENCLOSED BY '\"'
+                    LINES TERMINATED BY '\r\n'
+                    IGNORE 1 LINES
+                    (`key`, `size`);
+                ", [
                     $path,
+                    'usage_test',
                 ]);
 
-            if ($res === false) {
-                $this->output->writeln('Cant load. Retry...');
+                if ($res === false) {
+                    $this->output->writeln('Cant load. Retry...');
+                }
+            } while (++$attempt < 3);
+        } catch (\Throwable $throwable) {
+            $this->output->writeln('<error>' . $throwable->getMessage() . '</error>');
+            while (true) {
+
             }
-        } while (++$attempt < 3);
+        }
         unlink($path);
     }
 

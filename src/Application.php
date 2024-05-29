@@ -19,6 +19,8 @@ final class Application
     private S3Client $s3client;
     private OutputInterface $output;
 
+    private const TARGET = 131072;
+
     public function __construct()
     {
         $this->output = new ConsoleOutput();
@@ -148,9 +150,17 @@ final class Application
                 continue;
             }
 
+            $size = (int)$data[5];
+            /*if ($size <= 32768 || $size > 65536) {
+                continue;
+            }*/
+            if ($size > 32768) { // /4
+                continue;
+            }
+
             $storage []= [
                 'key' => md5($data[1]),
-                'size' => (int)$data[5],
+                'size' => $size,
             ];
 
             if (++$iterator % ($_ENV['BATCH_SIZE'] ?? 1000) === 0) {
@@ -168,7 +178,7 @@ final class Application
 
     private function processStorage(array $storage): void
     {
-        Usage::insert($storage);
+        Usage::insert($this->filterUsages($storage));
     }
 
     private function initDB()
@@ -209,5 +219,10 @@ final class Application
         LastUrl::query()->insert([
             'url' => $url,
         ]);
+    }
+
+    private function filterUsages(array $usages): array
+    {
+        return array_unique($usages, SORT_REGULAR);
     }
 }

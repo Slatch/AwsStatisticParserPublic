@@ -10,6 +10,7 @@ use FSStats\Model\LastDate;
 use FSStats\Model\LastUrl;
 use GuzzleHttp\Psr7\Stream;
 use Illuminate\Database\Capsule\Manager;
+use Illuminate\Database\Connection;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -17,6 +18,7 @@ final class Application
 {
     private S3Client $s3client;
     private OutputInterface $output;
+    private Connection $connection;
 
     public function __construct()
     {
@@ -24,7 +26,7 @@ final class Application
 
         $this->initS3Client();
 
-        $this->initDB();
+        $this->connection = $this->initDB();
     }
 
     public function run(): void
@@ -155,24 +157,22 @@ final class Application
         fclose($targetFile);
         fclose($stream);
 
-
-        $capsule = new Manager();
-        $connection = $capsule->getConnection('default');
-
         $attempt = 0;
         do {
-            $res = $connection->statement("LOAD DATA INFILE '?' INTO TABLE `?` FIELDS TERMINATED BY ',' (`key`, `size`);", [
-                $path,
-                'usage_test',
-            ]);
+            $res = $this->connection
+                ->statement("LOAD DATA INFILE '?' INTO TABLE `?` FIELDS TERMINATED BY ',' (`key`, `size`);", [
+                    $path,
+                    'usage_test',
+                ]);
 
             if ($res === false) {
                 $this->output->writeln('Cant load. Retry...');
             }
         } while (++$attempt < 3);
+        unlink($path);
     }
 
-    private function initDB()
+    private function initDB(): Connection
     {
         $capsule = new Manager();
         $capsule->addConnection([
@@ -186,6 +186,8 @@ final class Application
             'prefix' => '',
         ]);
         $capsule->bootEloquent();
+
+        return $capsule->getConnection('default');
     }
 
     private function isDateExists(string $date): bool

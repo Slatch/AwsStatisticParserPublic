@@ -8,6 +8,7 @@ use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
 use FSStats\Model\LastDate;
 use FSStats\Model\LastUrl;
+use FSStats\Model\Usage;
 use GuzzleHttp\Psr7\Stream;
 use Illuminate\Database\Capsule\Manager;
 use Illuminate\Database\Connection;
@@ -133,11 +134,7 @@ final class Application
             'window' => 32,
         ]);
 
-        $path = sys_get_temp_dir() . '/user_input_import.csv';
-        $targetFile = fopen($path, 'wb');
-
-        $this->output->writeln('Path: ' . $path);
-
+        $response = [];
         $iterations = 0;
         while (
             ($data = fgetcsv($stream, 1000)) !== false
@@ -152,40 +149,15 @@ final class Application
                 continue;
             }
 
-            fputcsv($targetFile, [md5($data[1]), (int)$data[5]]);
+            $response[] = [md5($data[1]), (int)$data[5]];
+
             if (++$iterations === 500) {
                 break;
             }
         }
-
-        fclose($targetFile);
         fclose($stream);
 
-        try {
-            $attempt = 0;
-            do {
-                $res = $this->connection->statement("
-                    LOAD DATA INFILE '?'
-                    INTO TABLE ?
-                    FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '\"' ESCAPED BY ''
-                    LINES TERMINATED BY '\\n'
-                    (`key`, `size`);
-                ", [
-                    addslashes($path),
-                    'usage_test',
-                ]);
-
-                if ($res === false) {
-                    $this->output->writeln('Cant load. Retry...');
-                }
-            } while (++$attempt < 3);
-        } catch (\Throwable $throwable) {
-            $this->output->writeln('<error>' . $throwable->getMessage() . '</error>');
-            while (true) {
-
-            }
-        }
-        unlink($path);
+        Usage::insert($response);
     }
 
     private function initDB(): Connection

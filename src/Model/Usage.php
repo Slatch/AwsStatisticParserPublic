@@ -20,6 +20,11 @@ class Usage extends Model
         'size',
     ];
 
+    public function getTable()
+    {
+        return 'usage_' . ($_ENV['DB_SUFFIX'] ?? '');
+    }
+
     protected function casts()
     {
         return [

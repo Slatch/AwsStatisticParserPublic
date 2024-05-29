@@ -168,7 +168,7 @@ final class Application
 
     private function processStorage(array $storage): void
     {
-        Usage::insert($storage);
+        Usage::insert($this->filterUsages($storage));
     }
 
     private function initDB()
@@ -209,5 +209,12 @@ final class Application
         LastUrl::query()->insert([
             'url' => $url,
         ]);
+    }
+
+    private function filterUsages(array $usages): array
+    {
+        return array_unique(array_map(function ($usage) {
+            return $usage['key'];
+        }, $usages));
     }
 }

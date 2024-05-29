@@ -135,7 +135,6 @@ final class Application
         ]);
 
         $response = [];
-        $iterations = 0;
         while (
             ($data = fgetcsv($stream, 1000)) !== false
         ) {
@@ -153,14 +152,12 @@ final class Application
                 'k' => md5($data[1]),
                 's' => (int)$data[5],
             ];
-
-            if (++$iterations === 500) {
-                break;
-            }
         }
         fclose($stream);
 
-        Usage::insert($response);
+        foreach (array_chunk($response, $_ENV['BATCH_SIZE'] ?? 100) as $items) {
+            Usage::insert($items);
+        }
     }
 
     private function initDB(): Connection

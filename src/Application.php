@@ -160,9 +160,9 @@ final class Application
         $attempt = 0;
         do {
             $res = $this->connection
-                ->statement("LOAD DATA INFILE '?' INTO TABLE `?` FIELDS TERMINATED BY ',' (`key`, `size`);", [
-                    $path,
+                ->statement("LOAD DATA INFILE '?' INTO TABLE `?` (`key`, `size`) FIELDS TERMINATED BY ',' IGNORE 1 ROWS;", [
                     'usage_test',
+                    $path,
                 ]);
 
             if ($res === false) {

@@ -8,7 +8,18 @@ use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
 use FSStats\Model\LastDate;
 use FSStats\Model\LastUrl;
-use FSStats\Model\Usage;
+use FSStats\Model\Usage0;
+use FSStats\Model\Usage1;
+use FSStats\Model\Usage10;
+use FSStats\Model\Usage11;
+use FSStats\Model\Usage2;
+use FSStats\Model\Usage3;
+use FSStats\Model\Usage4;
+use FSStats\Model\Usage5;
+use FSStats\Model\Usage6;
+use FSStats\Model\Usage7;
+use FSStats\Model\Usage8;
+use FSStats\Model\Usage9;
 use GuzzleHttp\Psr7\Stream;
 use Illuminate\Database\Capsule\Manager;
 use Symfony\Component\Console\Output\ConsoleOutput;
@@ -132,7 +143,7 @@ final class Application
             'window' => 32,
         ]);
 
-        $storage = [];
+        $storage = $this->initStorage();
         $iterator = 0;
 
         while (
@@ -148,27 +159,86 @@ final class Application
                 continue;
             }
 
-            $storage []= [
-                'key' => md5($data[1]),
-                'size' => (int)$data[5],
-            ];
+            $this->fillStorage(md5($data[1]), (int)$data[5], $storage);
 
             if (++$iterator % ($_ENV['BATCH_SIZE'] ?? 1000) === 0) {
                 $this->processStorage($storage);
-                $storage = [];
+                $storage = $this->initStorage();
             }
         }
 
         fclose($stream);
 
-        if (!empty($storage)) {
-            $this->processStorage($storage);
-        }
+        $this->processStorage($storage);
     }
 
     private function processStorage(array $storage): void
     {
-        Usage::insert($storage);
+        foreach ($storage as $index => $values) {
+            switch ($index) {
+                case 0:
+                    if (!empty($values)) {
+                        Usage0::insert($values);
+                    }
+                    break;
+                case 1:
+                    if (!empty($values)) {
+                        Usage1::insert($values);
+                    }
+                    break;
+                case 2:
+                    if (!empty($values)) {
+                        Usage2::insert($values);
+                    }
+                    break;
+                case 3:
+                    if (!empty($values)) {
+                        Usage3::insert($values);
+                    }
+                    break;
+                case 4:
+                    if (!empty($values)) {
+                        Usage4::insert($values);
+                    }
+                    break;
+                case 5:
+                    if (!empty($values)) {
+                        Usage5::insert($values);
+                    }
+                    break;
+                case 6:
+                    if (!empty($values)) {
+                        Usage6::insert($values);
+                    }
+                    break;
+                case 7:
+                    if (!empty($values)) {
+                        Usage7::insert($values);
+                    }
+                    break;
+                case 8:
+                    if (!empty($values)) {
+                        Usage8::insert($values);
+                    }
+                    break;
+                case 9:
+                    if (!empty($values)) {
+                        Usage9::insert($values);
+                    }
+                    break;
+                case 10:
+                    if (!empty($values)) {
+                        Usage10::insert($values);
+                    }
+                    break;
+                case 11:
+                    if (!empty($values)) {
+                        Usage11::insert($values);
+                    }
+                    break;
+            }
+        }
+
     }
 
     private function initDB()
@@ -209,5 +279,108 @@ final class Application
         LastUrl::query()->insert([
             'url' => $url,
         ]);
+    }
+
+    private function initStorage(): array
+    {
+        return [
+            0 => [],
+            1 => [],
+            2 => [],
+            3 => [],
+            4 => [],
+            5 => [],
+            6 => [],
+            7 => [],
+            8 => [],
+            9 => [],
+            10 => [],
+            11 => [],
+        ];
+    }
+
+    private function fillStorage(string $key, int $size, array &$storage): void
+    {
+        if ($size < 500) {
+            $storage[0][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        if ($size < 4000) {
+            $storage[1][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        if ($size < 8000) {
+            $storage[2][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        if ($size < 16000) {
+            $storage[3][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        if ($size < 34000) {
+            $storage[4][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        if ($size < 56000) {
+            $storage[5][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        if ($size < 90000) {
+            $storage[6][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        if ($size < 131072) {
+            $storage[7][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        if ($size < 210000) {
+            $storage[8][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        if ($size < 350000) {
+            $storage[9][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        if ($size < 1000000) {
+            $storage[10][] = [
+                'key' => $key,
+                'size' => $size,
+            ];
+            return;
+        }
+        $storage[11][] = [
+            'key' => $key,
+            'size' => $size,
+        ];
     }
 }

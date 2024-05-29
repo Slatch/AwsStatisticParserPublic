@@ -8,9 +8,9 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $key
  * @property int $size
  */
-class Usage extends Model
+class Usage7 extends Model
 {
-    protected $table = 'usage';
+    protected $table = 'usage7';
     protected $primaryKey = null;
     public $timestamps = false;
     public $incrementing = false;

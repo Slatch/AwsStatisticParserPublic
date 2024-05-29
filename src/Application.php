@@ -165,15 +165,15 @@ final class Application
             $attempt = 0;
             do {
                 $res = $this->connection
-                    ->statement("
-                    LOAD DATA INFILE '?'
+                    ->statement('
+                    LOAD DATA INFILE "?"
                     INTO TABLE `?`
-                    FIELDS TERMINATED BY ','
-                    ENCLOSED BY '\"'
-                    LINES TERMINATED BY '\r\n'
+                    FIELDS TERMINATED BY ","
+                    ENCLOSED BY \'"\'
+                    LINES TERMINATED BY ";, \t\r\n"
                     IGNORE 1 LINES
                     (`key`, `size`);
-                ", [
+                ', [
                     $path,
                     'usage_test',
                 ]);

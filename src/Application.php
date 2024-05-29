@@ -164,17 +164,14 @@ final class Application
         try {
             $attempt = 0;
             do {
-                $res = $this->connection
-                    ->statement('
-                    LOAD DATA INFILE "?"
-                    INTO TABLE `?`
-                    FIELDS TERMINATED BY ","
-                    ENCLOSED BY \'"\'
-                    LINES TERMINATED BY ";, \t\r\n"
-                    IGNORE 1 LINES
+                $res = $this->connection->statement("
+                    LOAD DATA INFILE '?'
+                    INTO TABLE ?
+                    FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '\"' ESCAPED BY ''
+                    LINES TERMINATED BY '\\n'
                     (`key`, `size`);
-                ', [
-                    $path,
+                ", [
+                    addslashes($path),
                     'usage_test',
                 ]);
 

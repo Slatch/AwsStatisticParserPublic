@@ -123,8 +123,8 @@ final class Application
         $attempt = 0;
         do {
             if (($stream = fopen($gzipUrl, 'r')) === false) {
-                $this->initS3Client();
                 $this->output->writeln('Failed to open stream. Retry...');
+                $this->initS3Client();
             }
         } while (++$attempt < 3);
 
@@ -132,8 +132,10 @@ final class Application
             'window' => 32,
         ]);
 
-        $storage = [];
-        $iterator = 0;
+        $path = sys_get_temp_dir() . '/user_input_import.csv';
+        $targetFile = fopen($path, 'wb');
+
+        $this->output->writeln('Path: ' . $path);
 
         while (
             ($data = fgetcsv($stream, 1000)) !== false
@@ -148,22 +150,26 @@ final class Application
                 continue;
             }
 
-            $storage []= [
-                'key' => md5($data[1]),
-                'size' => (int)$data[5],
-            ];
-
-            if (++$iterator % ($_ENV['BATCH_SIZE'] ?? 1000) === 0) {
-                $this->processStorage($storage);
-                $storage = [];
-            }
+            fputcsv($targetFile, [md5($data[1]), (int)$data[5]]);
         }
 
+        fclose($targetFile);
         fclose($stream);
 
-        if (!empty($storage)) {
-            $this->processStorage($storage);
+        while (true) {
+
         }
+
+        $capsule = new Manager();
+        $connection = $capsule->getConnection('default');
+
+        $connection->statement("
+            LOAD DATA LOCAL INFILE '?' INTO TABLE `usage`
+            FIELDS TERMINATED BY ','
+            ENCLOSED BY '\"'
+            LINES TERMINATED BY '\r\n'
+            IGNORE 1 LINES
+            (hash, size);", [$path]);
     }
 
     private function processStorage(array $storage): void

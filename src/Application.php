@@ -159,10 +159,17 @@ final class Application
         $capsule = new Manager();
         $connection = $capsule->getConnection('default');
 
-        $connection->statement("LOAD DATA INFILE '?' INTO TABLE `?` FIELDS TERMINATED BY ',' (`key`, `size`);", [
-            $path,
-            'usage_test',
-        ]);
+        $attempt = 0;
+        do {
+            $res = $connection->statement("LOAD DATA INFILE '?' INTO TABLE `?` FIELDS TERMINATED BY ',' (`key`, `size`);", [
+                $path,
+                'usage_test',
+            ]);
+
+            if ($res === false) {
+                $this->output->writeln('Cant load. Retry...');
+            }
+        } while (++$attempt < 3);
     }
 
     private function initDB()

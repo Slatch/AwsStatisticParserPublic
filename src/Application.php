@@ -149,7 +149,10 @@ final class Application
                 continue;
             }
 
-            $response[] = [md5($data[1]), (int)$data[5]];
+            $response[] = [
+                'key' => md5($data[1]),
+                'size' => (int)$data[5],
+            ];
 
             if (++$iterations === 500) {
                 break;

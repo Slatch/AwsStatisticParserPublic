@@ -5,8 +5,8 @@ namespace FSStats\Model;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * @property string $key
- * @property int $size
+ * @property string $k
+ * @property int $s
  */
 class Usage extends Model
 {
@@ -16,15 +16,15 @@ class Usage extends Model
     public $incrementing = false;
 
     protected $fillable = [
-        'key',
-        'size',
+        'k',
+        's',
     ];
 
     protected function casts()
     {
         return [
-            'key' => 'string',
-            'size' => 'int',
+            'k' => 'string',
+            's' => 'int',
         ];
     }
 }

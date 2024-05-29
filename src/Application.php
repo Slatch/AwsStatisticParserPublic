@@ -8,7 +8,6 @@ use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
 use FSStats\Model\LastDate;
 use FSStats\Model\LastUrl;
-use FSStats\Model\Usage;
 use GuzzleHttp\Psr7\Stream;
 use Illuminate\Database\Capsule\Manager;
 use Symfony\Component\Console\Output\ConsoleOutput;
@@ -156,25 +155,14 @@ final class Application
         fclose($targetFile);
         fclose($stream);
 
-        while (true) {
-
-        }
 
         $capsule = new Manager();
         $connection = $capsule->getConnection('default');
 
-        $connection->statement("
-            LOAD DATA LOCAL INFILE '?' INTO TABLE `usage`
-            FIELDS TERMINATED BY ','
-            ENCLOSED BY '\"'
-            LINES TERMINATED BY '\r\n'
-            IGNORE 1 LINES
-            (hash, size);", [$path]);
-    }
-
-    private function processStorage(array $storage): void
-    {
-        Usage::insert($storage);
+        $connection->statement("LOAD DATA INFILE '?' INTO TABLE `?` FIELDS TERMINATED BY ',' (`key`, `size`);", [
+            $path,
+            'usage_test',
+        ]);
     }
 
     private function initDB()

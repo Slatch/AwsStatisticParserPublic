@@ -124,31 +124,23 @@ final class Application
 
     private function processGzipUrl(string $gzipUrl): void
     {
-        $localArchiveStream = fopen(sys_get_temp_dir() . '/raw_archive.csv.gz', 'wb');
+        $filteredCsvStream = fopen(sys_get_temp_dir() . '/filtered_file.csv', 'w');
 
         $attempt = 0;
         do {
-            if (($gzipS3Stream = fopen($gzipUrl, 'r')) !== false) {
+            if (($stream = fopen($gzipUrl, 'r')) === false) {
                 break;
             }
             $this->output->writeln('Failed to open stream. Retry...');
             $this->initS3Client();
         } while (++$attempt < 3);
 
-        stream_copy_to_stream($gzipS3Stream, $localArchiveStream);
-
-        fclose($gzipS3Stream);
-        fclose($localArchiveStream);
-
-        copy('compress.zlib://' . sys_get_temp_dir() . '/raw_archive.csv.gz', sys_get_temp_dir() . '/raw_file.csv');
-
-        unlink(sys_get_temp_dir() . '/raw_archive.csv.gz');
-
-        $rawCsvStream = fopen(sys_get_temp_dir() . '/raw_file.csv', 'r');
-        $filteredCsvStream = fopen(sys_get_temp_dir() . '/filtered_file.csv', 'w');
+        stream_filter_append($stream, 'zlib.inflate', STREAM_FILTER_READ, [
+            'window' => 32,
+        ]);
 
         while (
-            ($data = fgetcsv($rawCsvStream, 1000)) !== false
+            ($data = fgetcsv($stream, 1000)) !== false
         ) {
             if (!isset($data[1], $data[3], $data[4], $data[5])) {
                 continue;
@@ -164,9 +156,6 @@ final class Application
         }
 
         fclose($filteredCsvStream);
-
-        fclose($rawCsvStream);
-        unlink(sys_get_temp_dir() . '/raw_file.csv');
 
         $this->connection->statement(
             'LOAD DATA LOCAL INFILE "' . sys_get_temp_dir() . '/filtered_file.csv"

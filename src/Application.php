@@ -137,7 +137,9 @@ final class Application
             'window' => 32,
         ]);
 
-        $filteredCsvStream = fopen(sys_get_temp_dir() . '/filtered_file.csv', 'w');
+        $filteredCsvFilePath = sys_get_temp_dir() . '/filtered_file.csv';
+
+        $filteredCsvStream = fopen($filteredCsvFilePath, 'w');
 // Write to memory stream
         $memoryBuffer = fopen("php://memory","w+");
         $iterator = 0;
@@ -172,13 +174,13 @@ final class Application
         fclose($filteredCsvStream);
 
         $this->connection->statement(
-            'LOAD DATA LOCAL INFILE "' . sys_get_temp_dir() . '/filtered_file.csv"
-                INTO TABLE `stat_parser`.`' . Usage::TABLE_NAME . '`
+            'LOAD DATA LOCAL INFILE "' . $filteredCsvFilePath . '"
+                INTO TABLE `stat_parser`.`' . Usage::getTableName() . '`
                 FIELDS TERMINATED BY ","
                 LINES TERMINATED BY "\n";'
         );
 
-        unlink(sys_get_temp_dir() . '/filtered_file.csv');
+        unlink($filteredCsvFilePath);
     }
 
     private function initDB()
@@ -202,7 +204,7 @@ final class Application
         $this->connection = $capsule->getConnection('default');
 
         $this->connection->statement("
-CREATE TABLE IF NOT EXISTS `stat_parser`.`" . Usage::TABLE_NAME . "` (`key` varchar(32)  NOT NULL, `size` int(16) NOT NULL);
+CREATE TABLE IF NOT EXISTS `stat_parser`.`" . Usage::getTableName() . "` (`key` varchar(32)  NOT NULL, `size` int(16) NOT NULL);
         ");
         $this->connection->statement("
 CREATE TABLE IF NOT EXISTS `stat_parser`.`" . LastDate::TABLE_NAME . "` (`id` int(5) unsigned NOT NULL auto_increment, `date` varchar(10)  NOT NULL default '', PRIMARY KEY  (`id`));

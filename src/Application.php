@@ -280,7 +280,6 @@ CREATE TABLE IF NOT EXISTS `stat_parser`.`" . LastUrl::TABLE_NAME . "` (`id` int
         } catch (\Throwable $e) {
             $this->output->writeln('<error>' . $e->getMessage() . '</error>');
             $this->output->writeln(sys_get_temp_dir() . '/filtered_file.csv');
-            // docker run -e BATCH_SIZE="10" -e DB_HOST=172.17.0.3 -it --name p02-29 --rm statistic-aggregator:v2 php app.php --dates=2024-02-29
         }
         return;
     }

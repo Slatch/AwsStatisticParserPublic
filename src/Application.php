@@ -8,6 +8,7 @@ use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
 use FSStats\Model\LastDate;
 use FSStats\Model\LastUrl;
+use FSStats\Model\Usage;
 use GuzzleHttp\Psr7\Stream;
 use Illuminate\Database\Capsule\Manager;
 use Illuminate\Database\Connection;
@@ -169,7 +170,7 @@ final class Application
 
         $this->connection->statement(
             'LOAD DATA LOCAL INFILE "' . sys_get_temp_dir() . '/filtered_file.csv"
-                INTO TABLE `stat_parser`.`usage`
+                INTO TABLE `stat_parser`.`' . Usage::TABLE_NAME . '`
                 FIELDS TERMINATED BY ","
                 LINES TERMINATED BY "\n";'
         );
@@ -196,6 +197,19 @@ final class Application
         $capsule->bootEloquent();
 
         $this->connection = $capsule->getConnection('default');
+
+        $this->connection->statement("
+CREATE TABLE IF NOT EXISTS `stat_parser`.`" . Usage::TABLE_NAME . "` (`key` varchar(32)  NOT NULL, `size` int(16) NOT NULL);
+        ");
+        $this->connection->statement("
+CREATE TABLE IF NOT EXISTS `stat_parser`.`" . LastDate::TABLE_NAME . "` (`id` int(5) unsigned NOT NULL auto_increment, `date` varchar(10)  NOT NULL default '', PRIMARY KEY  (`id`));
+        ");
+        $this->connection->statement("
+CREATE TABLE IF NOT EXISTS `stat_parser`.`" . LastUrl::TABLE_NAME . "` (`id` int(5) unsigned NOT NULL auto_increment, `url` varchar(250)  NOT NULL default '', PRIMARY KEY  (`id`));
+        ");
+        $this->connection->statement("SET GLOBAL unique_checks=0");
+        $this->connection->statement("SET GLOBAL foreign_key_checks=0");
+        $this->connection->statement("SET GLOBAL local_infile=1");
     }
 
     private function isDateExists(string $date): bool

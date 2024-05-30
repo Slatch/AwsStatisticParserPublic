@@ -10,7 +10,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class LastUrl extends Model
 {
-    protected $table = 'last_url';
+    public const TABLE_NAME = 'last_url_v2';
+    protected $table = self::TABLE_NAME;
 
     protected $fillable = [
         'url',

@@ -10,7 +10,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class LastDate extends Model
 {
-    protected $table = 'last_date';
+    public const TABLE_NAME = 'last_date_v2';
+    protected $table = self::TABLE_NAME;
 
     protected $fillable = [
         'date',

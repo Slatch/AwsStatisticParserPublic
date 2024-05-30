@@ -124,8 +124,6 @@ final class Application
 
     private function processGzipUrl(string $gzipUrl): void
     {
-        $filteredCsvStream = fopen(sys_get_temp_dir() . '/filtered_file.csv', 'w');
-
         $attempt = 0;
         do {
             if (($stream = fopen($gzipUrl, 'r')) !== false) {
@@ -139,6 +137,10 @@ final class Application
             'window' => 32,
         ]);
 
+        $filteredCsvStream = fopen(sys_get_temp_dir() . '/filtered_file.csv', 'w');
+// Write to memory stream
+        $memoryBuffer = fopen("php://memory","w+");
+        $iterator = 0;
         while (
             ($data = fgetcsv($stream, 1000)) !== false
         ) {
@@ -152,9 +154,21 @@ final class Application
                 continue;
             }
 
-            fputcsv($filteredCsvStream, [md5($data[1]), (int)$data[5]]);
+            fputcsv($memoryBuffer, [md5($data[1]), (int)$data[5]]);
+
+            if (++$iterator % 1000 === 0) {
+                rewind($memoryBuffer);
+                stream_copy_to_stream($memoryBuffer, $filteredCsvStream);
+                ftruncate($memoryBuffer, 0);
+            }
         }
 
+        if ($iterator % 1000 !== 0) {
+            rewind($memoryBuffer);
+            stream_copy_to_stream($memoryBuffer, $filteredCsvStream);
+        }
+
+        fclose($memoryBuffer);
         fclose($filteredCsvStream);
 
         $this->connection->statement(

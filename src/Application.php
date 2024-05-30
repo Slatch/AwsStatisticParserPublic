@@ -8,9 +8,9 @@ use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
 use FSStats\Model\LastDate;
 use FSStats\Model\LastUrl;
-use FSStats\Model\Usage;
 use GuzzleHttp\Psr7\Stream;
 use Illuminate\Database\Capsule\Manager;
+use Illuminate\Database\Connection;
 use Symfony\Component\Console\Output\ConsoleOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -18,6 +18,7 @@ final class Application
 {
     private S3Client $s3client;
     private OutputInterface $output;
+    private Connection $connection;
 
     private const TARGET = 131072;
 
@@ -122,23 +123,31 @@ final class Application
 
     private function processGzipUrl(string $gzipUrl): void
     {
+        $localArchiveStream = fopen(sys_get_temp_dir() . '/raw_archive.csv.gz', 'wb');
+
         $attempt = 0;
         do {
-            if (($stream = fopen($gzipUrl, 'r')) === false) {
-                $this->initS3Client();
-                $this->output->writeln('Failed to open stream. Retry...');
+            if (($gzipS3Stream = fopen($gzipUrl, 'r')) !== false) {
+                break;
             }
+            $this->output->writeln('Failed to open stream. Retry...');
+            $this->initS3Client();
         } while (++$attempt < 3);
 
-        stream_filter_append($stream, 'zlib.inflate', STREAM_FILTER_READ, [
-            'window' => 32,
-        ]);
+        stream_copy_to_stream($gzipS3Stream, $localArchiveStream);
 
-        $storage = [];
-        $iterator = 0;
+        fclose($gzipS3Stream);
+        fclose($localArchiveStream);
+
+        copy('compress.zlib://' . sys_get_temp_dir() . '/raw_archive.csv.gz', sys_get_temp_dir() . '/raw_file.csv');
+
+        unlink(sys_get_temp_dir() . '/raw_archive.csv.gz');
+
+        $rawCsvStream = fopen(sys_get_temp_dir() . '/raw_file.csv', 'r');
+        $filteredCsvStream = fopen(sys_get_temp_dir() . '/filtered_file.csv', 'w');
 
         while (
-            ($data = fgetcsv($stream, 1000)) !== false
+            ($data = fgetcsv($rawCsvStream, 1000)) !== false
         ) {
             if (!isset($data[1], $data[3], $data[4], $data[5])) {
                 continue;
@@ -150,35 +159,22 @@ final class Application
                 continue;
             }
 
-            $size = (int)$data[5];
-            /*if ($size <= 32768 || $size > 65536) {
-                continue;
-            }*/
-            if ($size > 32768) { // /4
-                continue;
-            }
-
-            $storage []= [
-                'key' => md5($data[1]),
-                'size' => $size,
-            ];
-
-            if (++$iterator % ($_ENV['BATCH_SIZE'] ?? 1000) === 0) {
-                $this->processStorage($storage);
-                $storage = [];
-            }
+            fputcsv($filteredCsvStream, [md5($data[1]), (int)$data[5]]);
         }
 
-        fclose($stream);
+        fclose($filteredCsvStream);
 
-        if (!empty($storage)) {
-            $this->processStorage($storage);
-        }
-    }
+        fclose($rawCsvStream);
+        unlink(sys_get_temp_dir() . '/raw_file.csv');
 
-    private function processStorage(array $storage): void
-    {
-        Usage::insert($this->filterUsages($storage));
+        $this->connection->statement(
+            'LOAD DATA LOCAL INFILE "' . sys_get_temp_dir() . '/filtered_file.csv"
+                INTO TABLE `stat_parser`.`usage`
+                FIELDS TERMINATED BY ","
+                LINES TERMINATED BY "\n";'
+        );
+
+        unlink(sys_get_temp_dir() . '/filtered_file.csv');
     }
 
     private function initDB()
@@ -193,8 +189,13 @@ final class Application
             'charset' => 'utf8',
             'collation' => 'utf8_unicode_ci',
             'prefix' => '',
+            'options' => [
+                \PDO::MYSQL_ATTR_LOCAL_INFILE => true,
+            ],
         ]);
         $capsule->bootEloquent();
+
+        $this->connection = $capsule->getConnection('default');
     }
 
     private function isDateExists(string $date): bool
@@ -221,8 +222,47 @@ final class Application
         ]);
     }
 
-    private function filterUsages(array $usages): array
+    private function debug()
     {
-        return array_unique($usages, SORT_REGULAR);
+        copy('compress.zlib://data/0074ee9b-5ca8-458f-b8ef-0ac83038c72d.csv.gz', sys_get_temp_dir() . '/raw_file.csv');
+
+        $stream = fopen(sys_get_temp_dir() . '/raw_file.csv', 'r');
+        $writeStream = fopen(sys_get_temp_dir() . '/filtered_file.csv', 'w');
+        while (
+            ($data = fgetcsv($stream, 1000)) !== false
+        ) {
+            if (!isset($data[1], $data[3], $data[4], $data[5])) {
+                continue;
+            }
+            // $data[0], $data[1], $data[2], $data[3], $data[4], $data[5]
+            // Bucket, Key, VersionId, IsLatest, IsDeleteMarker, Size
+            if ($data[3] != 'true' || $data[4] != 'false' || $data[5] === '') {
+                continue;
+            }
+
+            fputcsv($writeStream, [md5($data[1]), (int)$data[5]]);
+        }
+        fclose($writeStream);
+
+        fclose($stream);
+        unlink(sys_get_temp_dir() . '/raw_file.csv');
+
+
+
+
+
+        try {
+            $this->connection->statement(
+                'LOAD DATA LOCAL INFILE "' . sys_get_temp_dir() . '/filtered_file.csv"
+                INTO TABLE `stat_parser`.`usage`
+                FIELDS TERMINATED BY ","
+                LINES TERMINATED BY "\n";'
+            );
+        } catch (\Throwable $e) {
+            $this->output->writeln('<error>' . $e->getMessage() . '</error>');
+            $this->output->writeln(sys_get_temp_dir() . '/filtered_file.csv');
+            // docker run -e BATCH_SIZE="10" -e DB_HOST=172.17.0.3 -it --name p02-29 --rm statistic-aggregator:v2 php app.php --dates=2024-02-29
+        }
+        return;
     }
 }

@@ -128,7 +128,7 @@ final class Application
 
         $attempt = 0;
         do {
-            if (($stream = fopen($gzipUrl, 'r')) === false) {
+            if (($stream = fopen($gzipUrl, 'r')) !== false) {
                 break;
             }
             $this->output->writeln('Failed to open stream. Retry...');
